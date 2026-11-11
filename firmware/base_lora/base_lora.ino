@@ -44,7 +44,7 @@ const int OLED_SDA = 4,  OLED_SCL = 15, OLED_RST = 16, LORA_RST = 14, LED_PIN = 
 #endif
 const int LORA_SCK = 5, LORA_MISO = 19, LORA_MOSI = 27, LORA_SS = 18, LORA_DIO0 = 26;
 
-const long LORA_FREQ = 433E6;     // <-- как на ровере
+const long LORA_FREQ = 868E6;     // как на ровере (модуль 868/915 МГц)
 const int  LORA_SF   = 8;
 const uint8_t LORA_SYNC = 0x42;
 
