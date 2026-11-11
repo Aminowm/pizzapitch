@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Барлаушы — робот-разведчик газа</title>
+<meta name="description" content="Робот заезжает в колодец, коллектор или выработку раньше человека, меряет газ и передаёт данные по LoRa. Pizza Pitch, Жезказган.">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/mqtt@5/dist/mqtt.min.js"></script>
+<script src="js/config.js"></script>
+<script src="js/core.js"></script>
+</head>
+<body>
+
+<div class="top">
+  <div class="wrap">
+    <a class="logo" href="#"><i></i>БАРЛАУШЫ</a>
+    <nav class="nav">
+      <a href="#problem">Проблема</a>
+      <a href="#solution">Решение</a>
+      <a href="#how">Как работает</a>
+      <a href="#team">Команда</a>
+      <a class="btn small cta" href="live.html">● Живой пульт</a>
+    </nav>
+  </div>
+</div>
+<div class="hazard"></div>
+
+<!-- ============ HERO + LIVE ============ -->
+<section class="hero">
+  <div class="wrap">
+    <div>
+      <div class="kicker">Pizza Pitch · Жезказган · 2026</div>
+      <h1>Бар<span>лаушы</span></h1>
+      <div class="tag">Робот заходит первым.<br>Человек — только когда безопасно.</div>
+      <p class="lead">Автономный разведчик газа для канализационных колодцев, коллекторов, теплотрасс и подземных выработок. Меряет метан, угарный газ и канализационные газы по пути и передаёт данные по LoRa — прямо на эту страницу.</p>
+      <div class="actions">
+        <a class="btn" href="live.html">● Смотреть робота вживую</a>
+        <a class="btn ghost" href="3d.html">3D-модель системы</a>
+      </div>
+    </div>
+
+    <div class="live-card">
+      <div class="bar">
+        <span class="live-badge off" id="badge">OFF</span>
+        <span class="dot" id="dot"></span><span id="linkText">подключение…</span>
+      </div>
+      <div class="body">
+        <div class="notice" id="hint">Робот сейчас не в эфире.
+          <button class="btn small" id="demoBtn">▶ Показать демо-миссию</button></div>
+        <div id="verdict" class="verdict"></div>
+        <div class="tiles" id="tiles"></div>
+        <svg class="viz" id="tunnel" viewBox="0 0 1000 130" style="margin-top:10px" aria-label="Карта тоннеля"></svg>
+        <div style="margin-top:8px"><a href="live.html">Открыть полный пульт с графиком →</a></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ ПРОБЛЕМА ============ -->
+<section id="problem">
+  <div class="wrap">
+    <div class="kicker">Проблема</div>
+    <h2>Газ «проверяют» лёгкими</h2>
+    <p class="lead">В колодец, коллектор или выработку первым спускается человек. Метан, сероводород и угарный газ не видно, а у многих нет запаха — человек узнаёт об опасности, когда уже поздно. Следом за ним спускаются спасатели.</p>
+    <div class="grid g3" style="margin-top:22px">
+      <div class="card y">
+        <div class="num">20.05.2026</div>
+        <h3>Жезказган, ул. Абая — Чехова</h3>
+        <p>При очистке канализационного колодца произошёл выброс газа (предположительно метан). Один коммунальщик погиб, второго увезли в тяжёлом состоянии.</p>
+        <div class="src">Источник: <a href="https://www.inform.kz/ru/smertelniy-vibros-gaza-rabochiy-pogib-vkanalizatsionnom-kolodtse-vzhezkazgane-6e8aafa2" target="_blank" rel="noopener">Kazinform</a></div>
+      </div>
+      <div class="card y">
+        <div class="num">7</div>
+        <h3>горняков — рудник «Жомарт», Улытау</h3>
+        <p>Метан скопился в выработке и взорвался от искры оборудования. Правительство поручило внедрить автоматические системы контроля газов.</p>
+        <div class="src">Источники: <a href="https://forbes.kz/articles/prichinu-tragedii-na-shahte-kazahmysa-nazvali-v-pravitelstve-fceb88" target="_blank" rel="noopener">Forbes.kz</a>, <a href="https://24.kz/ru/news/top-news/697937-ozvucheny-predvaritelnye-itogi-rassledovaniya-chp-na-rudnike-zhomart" target="_blank" rel="noopener">24.kz</a></div>
+      </div>
+      <div class="card y">
+        <div class="num">60%+</div>
+        <h3>погибших — те, кто шёл спасать</h3>
+        <p>По данным NIOSH (США), большинство смертей в замкнутых пространствах — спасатели. В расследованных случаях воздух перед входом не проверяли.</p>
+        <div class="src">Источник: <a href="https://archive.cdc.gov/www_cdc_gov/niosh/docs/86-110/default_1778602679.html" target="_blank" rel="noopener">NIOSH 86-110</a></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ РЕШЕНИЕ ============ -->
+<section id="solution">
+  <div class="wrap">
+    <div class="kicker">Решение</div>
+    <h2>Робот-разведчик «Барлаушы»</h2>
+    <p class="lead">«Барлаушы» по-казахски — разведчик. Бригада ставит его у входа, и он едет внутрь вместо человека.</p>
+    <div class="grid g4 steps" style="margin-top:22px">
+      <div class="card"><h3>Запуск у входа</h3><p>Прогрев и калибровка датчиков по чистому воздуху, затем кнопка «Старт».</p></div>
+      <div class="card"><h3>Разведка по метрам</h3><p>Каждые 50 см остановка и замер четырёх датчиков. Препятствие — объезжает ультразвуком.</p></div>
+      <div class="card"><h3>Тревога и отход</h3><p>Опасный газ — стоп, сирена, отъезд назад из зоны. Решение принимает человек.</p></div>
+      <div class="card"><h3>Наряд-допуск</h3><p>Карта газа по тоннелю и вердикт «вход разрешён / запрещён» — с доказательством, что проверка была.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ КАК РАБОТАЕТ ============ -->
+<section id="how">
+  <div class="wrap">
+    <div class="kicker">Как это работает</div>
+    <h2>От датчика до вашего телефона</h2>
+    <div class="chain">
+      <div class="node"><div class="ic">🧪</div><b>4 датчика MQ</b><span>метан, CO, канализационные газы, пропан</span></div>
+      <div class="arrow">→<small>аналог<br>A0–A3</small></div>
+      <div class="node"><div class="ic">🧠</div><b>Arduino Mega</b><span>логика, моторы, тревога</span></div>
+      <div class="arrow">→<small>UART</small></div>
+      <div class="node"><div class="ic">📡</div><b>LilyGO LoRa</b><span>на роботе, 433 МГц</span></div>
+      <div class="arrow">⇢<small>радио<br>LoRa</small></div>
+      <div class="node"><div class="ic">🛰</div><b>База LilyGO</b><span>у бригадира</span></div>
+      <div class="arrow">→<small>Wi-Fi<br>телефона</small></div>
+      <div class="node"><div class="ic">☁</div><b>MQTT-облако</b><span>доставляет данные</span></div>
+      <div class="arrow">→<small>WebSocket</small></div>
+      <div class="node you"><div class="ic">📱</div><b>Этот сайт</b><span>вы здесь</span></div>
+    </div>
+    <a href="3d.html" style="display:block;margin-top:22px"><img src="img/3d_rover.jpg" alt="3D-модель ровера со всеми проводами" style="width:100%;border-radius:12px;border:1px solid var(--border);display:block"></a>
+    <p style="margin-top:14px"><a class="btn ghost" href="3d.html">Покрутить 3D-модель со всеми проводами →</a></p>
+
+    <div class="grid g2" style="margin-top:26px">
+      <div class="card">
+        <h3>Железо</h3>
+        <table>
+          <tr><td>Arduino Mega 2560</td><td>мозг робота</td></tr>
+          <tr><td>MQ-4 · MQ-7 · MQ-135 · MQ-2</td><td>газы</td></tr>
+          <tr><td>L298N + 4 мотора</td><td>движение</td></tr>
+          <tr><td>HC-SR04 на сервоприводе</td><td>объезд препятствий</td></tr>
+          <tr><td>2 × LilyGO LoRa32</td><td>радиосвязь робот ↔ база</td></tr>
+          <tr><td>LCD1602 + буззер</td><td>экран и сирена на роботе</td></tr>
+          <tr><td>Li-ion 2S + LM2596</td><td>питание 7,4 В и 5 В</td></tr>
+        </table>
+      </div>
+      <div class="card">
+        <h3>Честно о прототипе</h3>
+        <p>✔ Логика, связь и софт — рабочие, показываем вживую.</p>
+        <p>▲ Датчики MQ — недорогие и несертифицированные, ppm оценочные; кислород они не измеряют.</p>
+        <p>▲ Расстояние считается по времени езды (≈ метры), энкодеров пока нет.</p>
+        <p>➜ Промышленная версия: электрохимические 4-газовые сенсоры (O₂, H₂S, CO, CH₄), взрывозащищённый корпус, одометрия, гусеничное шасси.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ КОМУ ============ -->
+<section id="market">
+  <div class="wrap">
+    <div class="kicker">Кому это нужно</div>
+    <h2>Заказчики</h2>
+    <div class="grid g4" style="margin-top:18px">
+      <div class="card"><h3>Водоканалы</h3><p>Очистка и ремонт канализационных колодцев и коллекторов.</p></div>
+      <div class="card"><h3>Тепловодоснабжение</h3><p>Тепловые камеры, теплотрассы, подвалы.</p></div>
+      <div class="card"><h3>Горные подрядчики</h3><p>Проверка выработок перед входом смены.</p></div>
+      <div class="card"><h3>МЧС</h3><p>Разведка перед спуском спасателей.</p></div>
+    </div>
+    <p class="lead" style="margin-top:18px">Модель: продажа робота бригаде + облачный журнал проверок и нарядов-допусков по подписке.</p>
+  </div>
+</section>
+
+<!-- ============ КОМАНДА ============ -->
+<section id="team" class="team">
+  <div class="wrap">
+    <div class="kicker">Команда</div>
+    <h2>Кто сделал</h2>
+    <div class="grid g3" style="margin-top:18px">
+      <div class="card"><div class="avatar">С</div><h3>Саян</h3><p>Идея, питч, калибровка датчиков и данные</p></div>
+      <div class="card"><div class="avatar">Ә</div><h3>Әмір</h3><p>Железо и прошивка Arduino / ESP32</p></div>
+      <div class="card"><div class="avatar">Ә</div><h3>Әліби</h3><p>Сайт, пульт и финал питча</p></div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">Барлаушы · учебный прототип для Pizza Pitch (Ulytau Hub, Жезказган) · 2026.
+  Значения датчиков оценочные; прототип не является сертифицированным средством измерения.</div>
+</footer>
+<div class="hazard"></div>
+<div class="tip" id="tip"></div>
+
+<script>
+  B.on(() => {
+    B.renderVerdict("verdict");
+    B.renderTiles("tiles");
+    B.renderTunnel("tunnel");
+  });
+  function tickLink() {
+    const l = B.renderLink("dot", "linkText", "badge");
+    const waited = (Date.now() - started) / 1000;
+    document.getElementById("hint").classList.toggle("show", !l.live && B.S.mode === "live" && waited > BARLAUSHY_CONFIG.demoHintAfterSec);
+  }
+  const started = Date.now();
+  document.getElementById("demoBtn").addEventListener("click", () => { B.startDemo(); tickLink(); });
+  B.connectLive();
+  B.renderVerdict("verdict"); B.renderTiles("tiles"); B.renderTunnel("tunnel");
+  setInterval(tickLink, 500);
+</script>
+</body>
+</html>

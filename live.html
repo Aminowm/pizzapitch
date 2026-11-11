@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Барлаушы — живой пульт</title>
+<link rel="stylesheet" href="css/style.css">
+<style>
+  main { padding: 18px 0 40px; }
+  .row2 { display: grid; grid-template-columns: 2fr 1fr; gap: 14px; margin-top: 14px; }
+  @media (max-width: 900px) { .row2 { grid-template-columns: 1fr; } }
+  .card h3 { font-size: 15px; color: var(--text-secondary); font-family: var(--body); font-weight: 600; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; font-size: 15px; margin: 0; }
+  .kv dt { color: var(--text-secondary); } .kv dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .tablewrap { max-height: 360px; overflow: auto; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/mqtt@5/dist/mqtt.min.js"></script>
+<script src="js/config.js"></script>
+<script src="js/core.js"></script>
+</head>
+<body>
+<div class="top">
+  <div class="wrap">
+    <a class="logo" href="index.html"><i></i>БАРЛАУШЫ</a>
+    <span class="live-badge off" id="badge">OFF</span>
+    <span class="dot" id="dot"></span><span id="linkText" style="color:var(--text-secondary);font-size:14px">подключение…</span>
+    <nav class="nav"><a href="index.html">О проекте</a><a href="3d.html">3D-модель</a></nav>
+  </div>
+</div>
+<div class="hazard"></div>
+
+<main class="wrap big">
+  <div class="notice" id="hint">Робот сейчас не в эфире — можно посмотреть демо-миссию (симуляция тоннеля 10 м).
+    <button class="btn small" id="demoBtn">▶ Показать демо</button></div>
+
+  <div id="verdict" class="verdict"></div>
+  <div class="tiles" id="tiles"></div>
+
+  <div class="row2">
+    <div class="card">
+      <h3>Карта тоннеля — где какой газ</h3>
+      <svg class="viz" id="tunnel" viewBox="0 0 1000 130" aria-label="Карта тоннеля"></svg>
+    </div>
+    <div class="card">
+      <h3>Состояние робота</h3>
+      <dl class="kv">
+        <dt>Режим</dt><dd id="kState">—</dd>
+        <dt>Впереди</dt><dd id="kFront">—</dd>
+        <dt>Сигнал LoRa</dt><dd id="kRssi">—</dd>
+        <dt>Последний пакет</dt><dd id="kAge">—</dd>
+        <dt>Точек замера</dt><dd id="kPts">—</dd>
+      </dl>
+    </div>
+  </div>
+
+  <div class="row2" style="grid-template-columns:1fr">
+    <div class="card">
+      <h3>Газ по пути — % от порога тревоги (50 = осторожно, 100 = тревога)</h3>
+      <div class="legend" id="legend"></div>
+      <svg class="viz" id="chart" viewBox="0 0 1000 320" aria-label="График газа по расстоянию"></svg>
+    </div>
+    <div class="card">
+      <h3>Протокол замеров (новые сверху)</h3>
+      <div class="tablewrap"><table id="ptTable"></table></div>
+    </div>
+  </div>
+  <p style="color:var(--text-muted);font-size:13px;margin-top:16px">Страница только для просмотра: управляет роботом оператор с базовой станции.
+  Значения датчиков MQ оценочные, прототип не является сертифицированным средством измерения.</p>
+</main>
+<div class="tip" id="tip"></div>
+
+<script>
+  const $ = id => document.getElementById(id);
+  function renderAll() {
+    B.renderVerdict("verdict"); B.renderTiles("tiles"); B.renderTunnel("tunnel");
+    B.renderLegend("legend"); B.renderChart("chart"); B.renderTable("ptTable");
+    const t = B.S.last;
+    $("kState").textContent = t ? (B.STATE_RU[t.state] || t.state) : "—";
+    $("kFront").textContent = t ? (t.front >= 400 ? "свободно" : t.front + " см") : "—";
+    $("kRssi").textContent = t ? `${t.rssi} dBm · SNR ${t.snr}` : "—";
+    $("kPts").textContent = B.S.points.length;
+  }
+  const started = Date.now();
+  function tickLink() {
+    const l = B.renderLink("dot", "linkText", "badge");
+    const age = B.S.lastFresh ? ((Date.now() - B.S.lastFresh) / 1000).toFixed(1) + " с назад" : (B.S.last ? "сохранённые данные" : "—");
+    $("kAge").textContent = age;
+    $("hint").classList.toggle("show", !l.live && B.S.mode === "live" && (Date.now() - started) / 1000 > BARLAUSHY_CONFIG.demoHintAfterSec);
+  }
+  B.on(renderAll);
+  $("demoBtn").addEventListener("click", () => { B.startDemo(); tickLink(); });
+  if (location.hash === "#demo") B.startDemo(); else B.connectLive();
+  renderAll();
+  setInterval(tickLink, 500);
+</script>
+</body>
+</html>

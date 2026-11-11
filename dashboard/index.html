@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Барлаушы — пульт разведки газа</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #111110;
+    --surface-1: #1a1a19;
+    --surface-2: #232321;
+    --border: #383835;
+    --text-primary: #f0efec;
+    --text-secondary: #c3c2b7;
+    --text-muted: #8f8e86;
+    --grid: #2e2e2b;
+    /* серии (категориальные, проверены на тёмном фоне) */
+    --s1: #3987e5;  /* MQ-4 метан */
+    --s2: #d95926;  /* MQ-7 CO */
+    --s3: #199e70;  /* MQ-135 */
+    --s4: #c98500;  /* MQ-2 */
+    /* статусы — только со значком и подписью */
+    --good: #0ca30c;
+    --warning: #fab219;
+    --critical: #d03b3b;
+    --neutral: #4a4a46;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text-primary);
+    font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 12px 20px; border-bottom: 1px solid var(--border); background: var(--surface-1);
+  }
+  .brand { display: flex; flex-direction: column; margin-right: auto; }
+  .brand b { font-size: 22px; letter-spacing: .04em; }
+  .brand span { color: var(--text-secondary); font-size: 13px; }
+  button {
+    font: inherit; color: var(--text-primary); background: var(--surface-2);
+    border: 1px solid var(--border); border-radius: 8px; padding: 9px 14px; cursor: pointer;
+  }
+  button:hover:not(:disabled) { border-color: var(--text-secondary); }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  button.primary { background: #1c5cab; border-color: #2a78d6; }
+  button.danger { background: #8f2424; border-color: var(--critical); font-weight: 700; }
+  button.active { outline: 2px solid var(--s1); }
+  .link { display: flex; align-items: center; gap: 8px; color: var(--text-secondary); font-size: 14px; min-width: 210px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--neutral); flex: none; }
+
+  main {
+    display: grid; gap: 14px; padding: 14px 20px 30px;
+    grid-template-columns: repeat(12, 1fr);
+  }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+  .card h2 { margin: 0 0 10px; font-size: 15px; font-weight: 600; color: var(--text-secondary); }
+  .span-12 { grid-column: span 12; } .span-8 { grid-column: span 8; } .span-4 { grid-column: span 4; }
+  @media (max-width: 1100px) { .span-8, .span-4 { grid-column: span 12; } }
+
+  /* вердикт */
+  .verdict { display: flex; align-items: center; gap: 18px; border-left: 10px solid var(--neutral); }
+  .verdict .icon { font-size: 52px; line-height: 1; width: 64px; text-align: center; }
+  .verdict .title { font-size: 34px; font-weight: 800; letter-spacing: .02em; }
+  .verdict .sub { color: var(--text-secondary); font-size: 16px; margin-top: 2px; }
+  .verdict .meta { margin-left: auto; text-align: right; color: var(--text-secondary); font-size: 14px; }
+  .verdict .meta b { display: block; color: var(--text-primary); font-size: 28px; }
+  .verdict.good { border-left-color: var(--good); }
+  .verdict.warning { border-left-color: var(--warning); }
+  .verdict.critical { border-left-color: var(--critical); background: #2a1515; }
+  .verdict.critical .title { color: #ff8a8a; }
+  .flash { animation: flash 1s steps(2) infinite; }
+  @keyframes flash { 50% { background: #3d1717; } }
+
+  /* плитки газов */
+  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  @media (max-width: 900px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
+  .tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
+  .tile .head { display: flex; align-items: center; gap: 8px; color: var(--text-secondary); font-size: 14px; }
+  .swatch { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+  .tile .chip { margin-left: auto; font-size: 12px; color: var(--text-muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; }
+  .tile .val { font-size: 30px; font-weight: 700; margin: 6px 0 2px; font-variant-numeric: tabular-nums; }
+  .tile .val small { font-size: 15px; font-weight: 500; color: var(--text-secondary); }
+  .meter { position: relative; height: 8px; background: var(--surface-2); border-radius: 4px; margin: 8px 0 6px; overflow: hidden; }
+  .meter i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--good); }
+  .meter u { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--bg); }
+  .status { font-size: 13px; color: var(--text-secondary); display: flex; gap: 6px; align-items: center; }
+
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 15px; }
+  .kv dt { color: var(--text-secondary); } .kv dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  /* графики */
+  svg { display: block; width: 100%; height: auto; }
+  svg text { fill: var(--text-secondary); font: 12px system-ui, sans-serif; }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--text-secondary); margin-bottom: 6px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .tip {
+    position: fixed; pointer-events: none; z-index: 10; display: none;
+    background: #0b0b0b; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
+    font-size: 13px; color: var(--text-primary); min-width: 170px; box-shadow: 0 4px 16px #0008;
+  }
+  .tip .row { display: flex; align-items: center; gap: 6px; }
+  .tip .row b { margin-left: auto; padding-left: 10px; font-variant-numeric: tabular-nums; }
+
+  /* управление */
+  .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .controls .wide { grid-column: span 2; padding: 14px; font-size: 18px; }
+  .pad { display: grid; grid-template-columns: repeat(3, 48px); gap: 6px; justify-content: center; margin-top: 10px; }
+  .pad button { padding: 10px 0; }
+  .hint { color: var(--text-muted); font-size: 12px; margin-top: 8px; text-align: center; }
+
+  .permit-form { display: grid; grid-template-columns: repeat(3, 1fr) auto auto; gap: 8px; align-items: end; }
+  @media (max-width: 1000px) { .permit-form { grid-template-columns: 1fr 1fr; } }
+  label { font-size: 13px; color: var(--text-secondary); display: flex; flex-direction: column; gap: 4px; }
+  input { font: inherit; color: var(--text-primary); background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 10px; font-variant-numeric: tabular-nums; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  .tablewrap { max-height: 220px; overflow: auto; }
+
+  #log { margin: 0; height: 140px; overflow: auto; font: 12px/1.45 ui-monospace, Consolas, monospace; color: var(--text-secondary); white-space: pre-wrap; }
+
+  #print { display: none; }
+  @media print {
+    body { background: #fff; color: #000; }
+    header, main, .tip { display: none !important; }
+    #print { display: block; font: 12pt/1.45 "Times New Roman", serif; color: #000; padding: 10mm; }
+    #print h1 { font-size: 16pt; text-align: center; margin: 0 0 4px; }
+    #print .c { text-align: center; margin-bottom: 14px; }
+    #print table { font-size: 10.5pt; color: #000; }
+    #print th, #print td { border: 1px solid #000; color: #000; }
+    #print .verdictbox { border: 2px solid #000; padding: 8px 12px; font-size: 14pt; font-weight: 700; margin: 10px 0; }
+    #print .sign { display: flex; justify-content: space-between; margin-top: 28px; }
+    #print .small { font-size: 9.5pt; color: #333; margin-top: 18px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <b>БАРЛАУШЫ</b>
+    <span>робот-разведчик газа · заходит первым, чтобы человек не рисковал</span>
+  </div>
+  <button id="btnConnect" class="primary">🔌 Подключить базу (USB)</button>
+  <button id="btnDemo">▶ Демо-режим</button>
+  <div class="link"><span class="dot" id="linkDot"></span><span id="linkText">не подключено</span></div>
+</header>
+
+<main>
+  <section class="card verdict span-12" id="verdict" aria-live="polite">
+    <div class="icon" id="vIcon">⏻</div>
+    <div>
+      <div class="title" id="vTitle">Нет данных</div>
+      <div class="sub" id="vSub">Подключите базовую станцию или включите демо-режим</div>
+    </div>
+    <div class="meta">Пройдено<b id="vDist">— м</b></div>
+  </section>
+
+  <section class="tiles span-12" id="tiles"></section>
+
+  <section class="card span-8">
+    <h2>Карта тоннеля — где какой газ</h2>
+    <svg id="tunnel" viewBox="0 0 1000 140" role="img" aria-label="Карта тоннеля"></svg>
+  </section>
+
+  <section class="card span-4">
+    <h2>Состояние робота</h2>
+    <dl class="kv">
+      <dt>Режим</dt><dd id="kState">—</dd>
+      <dt>Впереди</dt><dd id="kFront">—</dd>
+      <dt>Сигнал LoRa</dt><dd id="kRssi">—</dd>
+      <dt>Последний пакет</dt><dd id="kAge">—</dd>
+      <dt>Батарея</dt><dd id="kBat">—</dd>
+      <dt>Команда</dt><dd id="kCmd">—</dd>
+    </dl>
+  </section>
+
+  <section class="card span-8">
+    <h2>Газ по пути робота — % от порога тревоги (50 = осторожно, 100 = тревога)</h2>
+    <div class="legend" id="legend"></div>
+    <svg id="chart" viewBox="0 0 1000 330" role="img" aria-label="График индекса опасности по расстоянию"></svg>
+  </section>
+
+  <section class="card span-4">
+    <h2>Управление</h2>
+    <div class="controls">
+      <button class="primary wide" data-cmd="START">▶ СТАРТ МИССИИ</button>
+      <button class="danger wide" data-cmd="STOP">■ СТОП (пробел)</button>
+      <button data-cmd="RESUME">⏵ Продолжить</button>
+      <button data-cmd="BEEP">🔔 Найти робота</button>
+      <button data-cmd="RECAL" style="grid-column: span 2">⟲ Калибровка (только в чистом воздухе)</button>
+    </div>
+    <div class="pad">
+      <span></span><button data-cmd="MAN_F" title="Вперёд">↑</button><span></span>
+      <button data-cmd="MAN_L" title="Влево">←</button><button data-cmd="MAN_B" title="Назад">↓</button><button data-cmd="MAN_R" title="Вправо">→</button>
+    </div>
+    <div class="hint">Стрелки клавиатуры — ручное управление, пробел — стоп</div>
+  </section>
+
+  <section class="card span-12">
+    <h2>Цифровой наряд-допуск</h2>
+    <div class="permit-form">
+      <label>Объект<input id="pObject" placeholder="Коллектор / колодец №…, адрес"></label>
+      <label>Ответственный<input id="pResp" placeholder="ФИО мастера"></label>
+      <label>Бригада<input id="pTeam" placeholder="состав бригады"></label>
+      <button id="btnPermit" class="primary">🖨 Наряд-допуск (PDF)</button>
+      <button id="btnCsv">⬇ CSV</button>
+    </div>
+    <div class="tablewrap"><table id="ptTable"></table></div>
+  </section>
+
+  <section class="card span-12">
+    <h2>Журнал</h2>
+    <pre id="log"></pre>
+  </section>
+</main>
+
+<div class="tip" id="tip"></div>
+<div id="print"></div>
+
+<script>
+"use strict";
+
+// ------------------------------------------------------------------
+// Описание датчиков (пороги должны совпадать с прошивкой Mega)
+// ------------------------------------------------------------------
+const SENSORS = [
+  { key: "ch4",  name: "Метан",                 chip: "MQ-4",   color: "var(--s1)", unit: "ppm", approx: true },
+  { key: "co",   name: "Угарный газ (CO)",      chip: "MQ-7",   color: "var(--s2)", unit: "ppm", approx: true },
+  { key: "q135", name: "Канализационные газы",  chip: "MQ-135", color: "var(--s3)", unit: "%",   approx: false },
+  { key: "q2",   name: "Пропан / горючие",      chip: "MQ-2",   color: "var(--s4)", unit: "%",   approx: false },
+];
+const STATE_RU = {
+  WARM: "Прогрев датчиков", CAL: "Калибровка (чистый воздух)", READY: "Готов к миссии",
+  DRIVE: "Движение", SAMPLE: "Замер", AVOID: "Объезд препятствия",
+  ALARM: "ТРЕВОГА: опасный газ", RETREAT: "Отход из опасной зоны", HOLD: "Ждёт команды",
+  MANUAL: "Ручное управление", DONE: "Миссия завершена",
+};
+const STATUS = [
+  { cls: "good",     color: "var(--good)",     icon: "✔", label: "норма" },
+  { cls: "warning",  color: "var(--warning)",  icon: "▲", label: "осторожно" },
+  { cls: "critical", color: "var(--critical)", icon: "⛔", label: "опасно" },
+];
+const levelOf = idx => idx >= 100 ? 2 : idx >= 50 ? 1 : 0;
+const $ = id => document.getElementById(id);
+const fmt = n => Math.round(n).toLocaleString("ru-RU");
+
+// ------------------------------------------------------------------
+// Состояние
+// ------------------------------------------------------------------
+let last = null;           // последняя телеметрия
+let lastRx = 0;            // время последнего пакета
+let linkLost = false;
+let points = [];           // точки замеров текущей миссии
+let missionStart = null;
+let pendingCmd = null;     // {id, name}
+let port = null, writer = null, demo = null;
+
+function log(msg) {
+  const t = new Date().toLocaleTimeString("ru-RU");
+  const el = $("log");
+  el.textContent += `[${t}] ${msg}\n`;
+  if (el.textContent.length > 20000) el.textContent = el.textContent.slice(-15000);
+  el.scrollTop = el.scrollHeight;
+}
+
+// ------------------------------------------------------------------
+// Разбор строк от базы
+// TEL,seq,STATE,dist,ch4,co,q135,q2,i1,i2,i3,i4,overall,front,pt,ack,bat,warm,rssi,snr
+// ------------------------------------------------------------------
+function handleLine(line) {
+  line = line.trim();
+  if (!line) return;
+  if (line.startsWith("TEL,")) {
+    const f = line.split(",");
+    if (f.length < 20) return;
+    const t = {
+      seq: +f[1], state: f[2], dist: +f[3] / 100,
+      ch4: +f[4], co: +f[5], q135: +f[6], q2: +f[7],
+      idx: [+f[8], +f[9], +f[10], +f[11]],
+      overall: +f[12], front: +f[13], pt: +f[14] === 1, ack: +f[15],
+      bat: +f[16] / 10, warm: +f[17], rssi: +f[f.length - 2], snr: +f[f.length - 1],
+      time: new Date(),
+    };
+    onTelemetry(t);
+  } else if (line.startsWith("SENT,")) {
+    const [, id, name] = line.split(",");
+    pendingCmd = { id: +id, name };
+    $("kCmd").textContent = `${name} → отправлено…`;
+  } else if (line === "LINK,0") {
+    if (!linkLost) log("⚠ Нет связи с роботом (5 с без пакетов)");
+    linkLost = true;
+  } else if (line.startsWith("BASE,")) {
+    log(line === "BASE,READY" ? "База на связи, LoRa готова" : "⚠ База: ошибка LoRa (проверь антенну/частоту)");
+  } else if (line.startsWith("#")) {
+    log(line);
+  }
+}
+
+function onTelemetry(t) {
+  const prev = last;
+  // новая миссия: из READY/DONE/HOLD в SAMPLE на 0 м
+  if (t.state === "SAMPLE" && t.dist === 0 && (!prev || ["READY", "DONE", "HOLD"].includes(prev.state))) {
+    points = []; missionStart = t.time;
+    log("▶ Миссия началась");
+  }
+  if (prev && prev.state !== t.state) {
+    log(`Режим: ${STATE_RU[t.state] || t.state}` + (t.state === "ALARM" ? ` на ≈${t.dist.toFixed(1)} м` : ""));
+  }
+  if (pendingCmd && t.ack === pendingCmd.id) {
+    log(`✓ Робот принял команду ${pendingCmd.name}`);
+    $("kCmd").textContent = `${pendingCmd.name} ✓ принята`;
+    pendingCmd = null;
+  }
+  if (t.pt) points.push(t);
+  last = t; lastRx = Date.now(); linkLost = false;
+  render();
+}
+
+// ------------------------------------------------------------------
+// Отрисовка
+// ------------------------------------------------------------------
+function sensorValueText(i, t) {
+  const s = SENSORS[i], v = t[s.key];
+  if (s.unit === "ppm") return `≈${fmt(v)}<small> ppm</small>`;
+  return `${fmt(v)}<small> % сигнал</small>`;
+}
+
+function buildTiles() {
+  $("tiles").innerHTML = SENSORS.map((s, i) => `
+    <div class="tile" id="tile${i}">
+      <div class="head"><span class="swatch" style="background:${s.color}"></span>${s.name}<span class="chip">${s.chip}</span></div>
+      <div class="val" id="tv${i}">—</div>
+      <div class="meter"><i id="tm${i}" style="width:0"></i><u style="left:33.3%"></u><u style="left:66.6%"></u></div>
+      <div class="status" id="ts${i}">—</div>
+    </div>`).join("");
+  $("legend").innerHTML = SENSORS.map(s =>
+    `<span><span class="swatch" style="background:${s.color}"></span>${s.name} (${s.chip})</span>`).join("");
+}
+
+function renderTiles(t) {
+  SENSORS.forEach((s, i) => {
+    const idx = t ? t.idx[i] : 0, lv = levelOf(idx), st = STATUS[lv];
+    const calibrated = t && !["WARM", "CAL"].includes(t.state);
+    $("tv" + i).innerHTML = calibrated ? sensorValueText(i, t) : "—";
+    const m = $("tm" + i);
+    m.style.width = Math.min(idx, 150) / 150 * 100 + "%";
+    m.style.background = st.color;
+    $("ts" + i).innerHTML = calibrated
+      ? `<span style="color:${st.color}">${st.icon}</span> ${st.label} · ${Math.round(idx)}% порога`
+      : (t ? STATE_RU[t.state] : "—");
+  });
+}
+
+function verdict(t) {
+  if (!t) return { lv: -1, icon: "⏻", title: "Нет данных", sub: "Подключите базовую станцию или включите демо-режим" };
+  if (t.state === "WARM") return { lv: -1, icon: "♨", title: "Прогрев датчиков", sub: `Осталось ≈${t.warm} с. Датчики MQ должны нагреться перед калибровкой` };
+  if (t.state === "CAL") return { lv: -1, icon: "⟲", title: "Калибровка", sub: "Робот запоминает чистый воздух — не подносите газ" };
+  const worstPt = points.reduce((a, p) => (!a || p.overall > a.overall || (p.overall === a.overall && Math.max(...p.idx) > Math.max(...a.idx))) ? p : a, null);
+  const nowLv = t.overall;
+  const lv = Math.max(nowLv, worstPt ? worstPt.overall : 0);
+  const where = worstPt && worstPt.overall === lv ? worstPt : t;
+  const gasName = SENSORS[where.idx.indexOf(Math.max(...where.idx))].name.toLowerCase();
+  if (lv === 2) return { lv, icon: "⛔", title: "ВХОД ЗАПРЕЩЁН", sub: `Опасная концентрация на ≈${where.dist.toFixed(1)} м: ${gasName}. Людей не пускать, нужна вентиляция` };
+  if (lv === 1) return { lv, icon: "⚠", title: "ОСТОРОЖНО", sub: `Повышенный уровень на ≈${where.dist.toFixed(1)} м: ${gasName}. Только после проветривания и с газоанализатором` };
+  if (t.state === "DONE") return { lv: 0, icon: "✅", title: "ВХОД РАЗРЕШЁН", sub: `Проверено ≈${t.dist.toFixed(1)} м — опасных газов не обнаружено` };
+  if (t.state === "READY" && !points.length) return { lv: -1, icon: "●", title: "Готов к миссии", sub: "Поставьте робота у входа и нажмите «СТАРТ МИССИИ»" };
+  return { lv: 0, icon: "🔍", title: "Идёт проверка", sub: `Пройдено ≈${t.dist.toFixed(1)} м — опасности пока нет` };
+}
+
+function renderVerdict(t) {
+  const v = verdict(t), el = $("verdict");
+  el.className = "card verdict span-12" + (v.lv >= 0 ? " " + STATUS[v.lv].cls : "") +
+    (t && t.state === "ALARM" ? " flash" : "");
+  $("vIcon").textContent = v.icon;
+  $("vTitle").textContent = v.title;
+  $("vSub").textContent = v.sub;
+  $("vDist").textContent = t ? `≈${t.dist.toFixed(1)} м` : "— м";
+}
+
+function renderStatus(t) {
+  $("kState").textContent = t ? (STATE_RU[t.state] || t.state) : "—";
+  $("kFront").textContent = t ? (t.front >= 400 ? "свободно" : `${t.front} см`) : "—";
+  $("kRssi").textContent = t ? `${t.rssi} dBm · SNR ${t.snr}` : "—";
+  $("kBat").textContent = t && t.bat > 0 ? `${t.bat.toFixed(1)} В` : "не измеряется";
+}
+
+function maxDist() {
+  const d = Math.max(10, last ? last.dist : 0, ...points.map(p => p.dist));
+  return Math.ceil(d);
+}
+
+const NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, parent, text) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (text !== undefined) e.textContent = text;
+  if (parent) parent.appendChild(e);
+  return e;
+}
+
+// подсказка
+const tip = $("tip");
+function showTip(evt, html) {
+  tip.innerHTML = html; tip.style.display = "block";
+  const x = Math.min(evt.clientX + 14, window.innerWidth - tip.offsetWidth - 8);
+  const y = Math.min(evt.clientY + 14, window.innerHeight - tip.offsetHeight - 8);
+  tip.style.left = x + "px"; tip.style.top = y + "px";
+}
+function hideTip() { tip.style.display = "none"; }
+function pointTip(p) {
+  return `<div style="margin-bottom:4px"><b>≈${p.dist.toFixed(1)} м</b> · ${p.time.toLocaleTimeString("ru-RU")}</div>` +
+    SENSORS.map((s, i) => `<div class="row"><span class="swatch" style="background:${s.color}"></span>${s.name}<b>${Math.round(p.idx[i])}%</b></div>`).join("") +
+    `<div class="row" style="margin-top:4px"><span style="color:${STATUS[p.overall].color}">${STATUS[p.overall].icon}</span>${STATUS[p.overall].label}</div>`;
+}
+
+function renderTunnel() {
+  const svg = $("tunnel"); svg.innerHTML = "";
+  const L = 40, R = 960, top = 42, h = 50, D = maxDist();
+  const X = d => L + (R - L) * d / D;
+  // стены тоннеля
+  el("rect", { x: L - 6, y: top - 6, width: R - L + 12, height: h + 12, rx: 14, fill: "#2a2a27", stroke: "var(--border)" }, svg);
+  el("rect", { x: L, y: top, width: R - L, height: h, rx: 8, fill: "var(--neutral)" }, svg);
+  // сегменты по точкам замеров (сортировка по расстоянию, отход назад перезаписывает)
+  const sorted = [...points].sort((a, b) => a.dist - b.dist);
+  sorted.forEach((p, i) => {
+    const x0 = X(p.dist);
+    const x1 = i + 1 < sorted.length ? X(sorted[i + 1].dist) : X(Math.min(D, p.dist + 0.5));
+    const seg = el("rect", { x: x0, y: top, width: Math.max(4, x1 - x0 - 2), height: h, rx: 4, fill: STATUS[p.overall].color }, svg);
+    seg.addEventListener("mousemove", e => showTip(e, pointTip(p)));
+    seg.addEventListener("mouseleave", hideTip);
+    if (p.overall === 2) el("text", { x: x0 + 4, y: top + h / 2 + 5, style: "fill:#fff;font-weight:700;font-size:14px" }, svg, "⛔");
+  });
+  // шкала метров
+  for (let m = 0; m <= D; m++) {
+    const x = X(m);
+    el("line", { x1: x, x2: x, y1: top + h + 6, y2: top + h + 12, stroke: "var(--text-muted)" }, svg);
+    if (D <= 20 || m % 2 === 0) el("text", { x, y: top + h + 26, "text-anchor": "middle" }, svg, m + " м");
+  }
+  el("text", { x: L - 30, y: top + h / 2 + 4 }, svg, "вход");
+  // робот
+  if (last && !["WARM", "CAL"].includes(last.state)) {
+    const x = X(Math.min(last.dist, D));
+    const g = el("g", {}, svg);
+    el("path", { d: `M${x - 9} ${top - 22} L${x + 9} ${top - 22} L${x} ${top - 8} Z`, fill: "var(--text-primary)" }, g);
+    el("text", { x, y: top - 26, "text-anchor": "middle", style: "fill:var(--text-primary);font-weight:600" }, g, "робот");
+  }
+}
+
+function renderChart() {
+  const svg = $("chart"); svg.innerHTML = "";
+  const L = 52, R = 940, T = 14, B = 290, D = maxDist(), YMAX = 150;
+  const X = d => L + (R - L) * d / D;
+  const Y = v => B - (B - T) * Math.min(v, YMAX) / YMAX;
+
+  // сетка и оси (тихие)
+  [0, 50, 100, 150].forEach(v => {
+    el("line", { x1: L, x2: R, y1: Y(v), y2: Y(v), stroke: "var(--grid)" }, svg);
+    el("text", { x: L - 8, y: Y(v) + 4, "text-anchor": "end" }, svg, v + "%");
+  });
+  for (let m = 0; m <= D; m += (D > 20 ? 2 : 1))
+    el("text", { x: X(m), y: B + 18, "text-anchor": "middle" }, svg, m + " м");
+  // пороги
+  el("line", { x1: L, x2: R, y1: Y(50), y2: Y(50), stroke: "var(--warning)", "stroke-dasharray": "6 5", "stroke-width": 1.5 }, svg);
+  el("text", { x: R - 4, y: Y(50) - 6, "text-anchor": "end", style: "fill:var(--text-secondary)" }, svg, "▲ осторожно");
+  el("line", { x1: L, x2: R, y1: Y(100), y2: Y(100), stroke: "var(--critical)", "stroke-dasharray": "6 5", "stroke-width": 1.5 }, svg);
+  el("text", { x: R - 4, y: Y(100) - 6, "text-anchor": "end", style: "fill:var(--text-secondary)" }, svg, "⛔ тревога");
+
+  if (!points.length) {
+    el("text", { x: (L + R) / 2, y: (T + B) / 2, "text-anchor": "middle", style: "font-size:15px" }, svg, "Точки появятся после старта миссии");
+  } else {
+    const ordered = points; // по времени: показывает и отход назад
+    SENSORS.forEach((s, i) => {
+      el("polyline", {
+        points: ordered.map(p => `${X(p.dist)},${Y(p.idx[i])}`).join(" "),
+        fill: "none", stroke: s.color, "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round",
+      }, svg);
+      ordered.forEach(p => el("circle", { cx: X(p.dist), cy: Y(p.idx[i]), r: 4, fill: s.color, stroke: "var(--surface-1)", "stroke-width": 2 }, svg));
+    });
+    // подписи на концах линий (разводим, чтобы не слипались)
+    const lastP = ordered[ordered.length - 1];
+    const labels = SENSORS.map((s, i) => ({ y: Y(lastP.idx[i]), text: s.chip }))
+      .sort((a, b) => a.y - b.y);
+    for (let k = 1; k < labels.length; k++) if (labels[k].y - labels[k - 1].y < 14) labels[k].y = labels[k - 1].y + 14;
+    labels.forEach(l => el("text", { x: Math.min(X(lastP.dist) + 8, R + 4), y: l.y + 4, style: "fill:var(--text-primary)" }, svg, l.text));
+  }
+
+  // перекрестие + подсказка
+  const cross = el("line", { y1: T, y2: B, stroke: "var(--text-muted)", visibility: "hidden" }, svg);
+  const hit = el("rect", { x: L, y: T, width: R - L, height: B - T, fill: "transparent" }, svg);
+  hit.addEventListener("mousemove", e => {
+    if (!points.length) return;
+    const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
+    const loc = pt.matrixTransform(svg.getScreenCTM().inverse());
+    let best = points[0];
+    for (const p of points) if (Math.abs(X(p.dist) - loc.x) < Math.abs(X(best.dist) - loc.x)) best = p;
+    cross.setAttribute("x1", X(best.dist)); cross.setAttribute("x2", X(best.dist));
+    cross.setAttribute("visibility", "visible");
+    showTip(e, pointTip(best));
+  });
+  hit.addEventListener("mouseleave", () => { cross.setAttribute("visibility", "hidden"); hideTip(); });
+}
+
+function renderTable() {
+  const head = `<tr><th>№</th><th>Время</th><th>Расстояние</th>${SENSORS.map(s => `<th>${s.chip}</th>`).join("")}<th>Статус</th></tr>`;
+  const rows = points.map((p, k) => `<tr><td>${k + 1}</td><td>${p.time.toLocaleTimeString("ru-RU")}</td><td>≈${p.dist.toFixed(1)} м</td>` +
+    `<td>≈${fmt(p.ch4)} ppm</td><td>≈${fmt(p.co)} ppm</td><td>${fmt(p.q135)} %</td><td>${fmt(p.q2)} %</td>` +
+    `<td><span style="color:${STATUS[p.overall].color}">${STATUS[p.overall].icon}</span> ${STATUS[p.overall].label}</td></tr>`).join("");
+  $("ptTable").innerHTML = head + (rows || `<tr><td colspan="8" style="text-align:center;color:var(--text-muted)">Пока нет точек замера</td></tr>`);
+}
+
+function renderLink() {
+  const connected = !!(writer || demo);
+  const age = lastRx ? (Date.now() - lastRx) / 1000 : null;
+  let color = "var(--neutral)", text = "не подключено";
+  if (connected) {
+    if (!lastRx) { color = "var(--warning)"; text = demo ? "демо: запуск…" : "база подключена, ждём робота…"; }
+    else if (linkLost || age > 5) { color = "var(--critical)"; text = `⛔ нет связи ${Math.round(age)} с`; }
+    else { color = "var(--good)"; text = (demo ? "демо · " : "") + `связь есть · ${last.rssi} dBm`; }
+  }
+  $("linkDot").style.background = color;
+  $("linkText").textContent = text;
+  $("kAge").textContent = age === null ? "—" : `${age.toFixed(1)} с назад`;
+  document.querySelectorAll("[data-cmd]").forEach(b => b.disabled = !connected);
+}
+
+function render() {
+  renderVerdict(last); renderTiles(last); renderStatus(last);
+  renderTunnel(); renderChart(); renderTable(); renderLink();
+}
+
+// ------------------------------------------------------------------
+// Команды
+// ------------------------------------------------------------------
+async function sendCmd(name) {
+  if (demo) { demo.command(name); log(`→ ${name} (демо)`); return; }
+  if (!writer) return;
+  await writer.write(new TextEncoder().encode(`CMD:${name}\n`));
+  log(`→ ${name}`);
+}
+document.querySelectorAll("[data-cmd]").forEach(b => b.addEventListener("click", () => sendCmd(b.dataset.cmd)));
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT") return;
+  const map = { ArrowUp: "MAN_F", ArrowDown: "MAN_B", ArrowLeft: "MAN_L", ArrowRight: "MAN_R", " ": "STOP" };
+  if (map[e.key] && (writer || demo)) { e.preventDefault(); sendCmd(map[e.key]); }
+});
+
+// ------------------------------------------------------------------
+// Web Serial
+// ------------------------------------------------------------------
+$("btnConnect").addEventListener("click", async () => {
+  if (!("serial" in navigator)) { alert("Нужен Google Chrome или Microsoft Edge на компьютере (Web Serial)."); return; }
+  try {
+    stopDemo();
+    port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 115200 });
+    writer = port.writable.getWriter();
+    log("База подключена по USB");
+    $("btnConnect").textContent = "✔ База подключена";
+    renderLink();
+    readLoop();
+  } catch (err) { log("Ошибка подключения: " + err.message); }
+});
+
+async function readLoop() {
+  const decoder = new TextDecoder();
+  let buf = "";
+  try {
+    const reader = port.readable.getReader();
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf("\n")) >= 0) { handleLine(buf.slice(0, i)); buf = buf.slice(i + 1); }
+    }
+  } catch (err) {
+    log("USB отключён: " + err.message);
+  }
+  writer = null; $("btnConnect").textContent = "🔌 Подключить базу (USB)"; renderLink();
+}
+
+// ------------------------------------------------------------------
+// Наряд-допуск и CSV
+// ------------------------------------------------------------------
+$("btnPermit").addEventListener("click", () => {
+  const v = verdict(last);
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const obj = esc($("pObject").value || "________________________");
+  const resp = esc($("pResp").value || "________________________");
+  const team = esc($("pTeam").value || "________________________");
+  const now = new Date();
+  const maxBy = SENSORS.map((s, i) => {
+    const p = points.reduce((a, b) => (!a || b.idx[i] > a.idx[i]) ? b : a, null);
+    return p ? `<tr><td>${s.name} (${s.chip})</td><td>${s.unit === "ppm" ? "≈" + fmt(p[s.key]) + " ppm" : fmt(p[s.key]) + " %"}</td><td>${Math.round(p.idx[i])}%</td><td>≈${p.dist.toFixed(1)} м</td></tr>` : "";
+  }).join("");
+  const rows = points.map((p, k) => `<tr><td>${k + 1}</td><td>${p.time.toLocaleTimeString("ru-RU")}</td><td>≈${p.dist.toFixed(1)}</td><td>${fmt(p.ch4)}</td><td>${fmt(p.co)}</td><td>${fmt(p.q135)}</td><td>${fmt(p.q2)}</td><td>${STATUS[p.overall].label}</td></tr>`).join("");
+  $("print").innerHTML = `
+    <h1>НАРЯД-ДОПУСК № ${now.getTime().toString().slice(-6)}</h1>
+    <div class="c">на работы в замкнутом пространстве · проверка газовой среды роботом «Барлаушы»</div>
+    <p><b>Объект:</b> ${obj}<br><b>Ответственный:</b> ${resp}<br><b>Бригада:</b> ${team}<br>
+    <b>Дата и время проверки:</b> ${now.toLocaleString("ru-RU")}<br>
+    <b>Начало миссии:</b> ${missionStart ? missionStart.toLocaleTimeString("ru-RU") : "—"} · <b>Пройдено:</b> ≈${last ? last.dist.toFixed(1) : 0} м · <b>Точек замера:</b> ${points.length}</p>
+    <div class="verdictbox">ЗАКЛЮЧЕНИЕ: ${esc(v.title)}<br><span style="font-weight:400;font-size:12pt">${esc(v.sub)}</span></div>
+    <table><tr><th>Газ</th><th>Максимум</th><th>% от порога тревоги</th><th>Где</th></tr>${maxBy}</table>
+    <h3>Протокол замеров</h3>
+    <table><tr><th>№</th><th>Время</th><th>м</th><th>CH₄, ppm</th><th>CO, ppm</th><th>MQ-135, %</th><th>MQ-2, %</th><th>Статус</th></tr>${rows}</table>
+    <div class="sign"><span>Ответственный: ____________ / ${resp}</span><span>Допуск получил: ____________</span></div>
+    <div class="small">Прототип (учебный проект). Значения ppm оценочные; датчики MQ не являются сертифицированным средством измерения и не измеряют кислород. Перед входом людей обязателен замер поверенным газоанализатором.</div>`;
+  window.print();
+});
+
+$("btnCsv").addEventListener("click", () => {
+  const head = "n;time;dist_m;ch4_ppm;co_ppm;mq135_pct;mq2_pct;idx_ch4;idx_co;idx_mq135;idx_mq2;status\n";
+  const body = points.map((p, k) => [k + 1, p.time.toISOString(), p.dist.toFixed(2), p.ch4, p.co, p.q135, p.q2, ...p.idx, STATUS[p.overall].label].join(";")).join("\n");
+  const blob = new Blob(["﻿" + head + body], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `barlaushy_${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")}.csv`;
+  a.click();
+});
+
+// ------------------------------------------------------------------
+// ДЕМО: симулятор ровера (тот же формат TEL, что и у настоящей базы)
+// Тоннель 10 м, препятствие на 3,2 м, газовый карман на ~6,3 м
+// ------------------------------------------------------------------
+class RoverSim {
+  constructor(emit) {
+    this.emit = emit; this.state = "WARM"; this.t0 = 0; this.now = 0;
+    this.dist = 0; this.target = 0.5; this.seq = 0; this.ack = -1; this.cmdId = 0;
+    this.idx = [0, 0, 0, 0]; this.lastTel = 0; this.manual = null; this.ret = "READY";
+    this.timer = setInterval(() => this.tick(100), 100);
+  }
+  stop() { clearInterval(this.timer); }
+  enter(s) { this.state = s; this.t0 = this.now; this.send(false); }
+  field(x) {           // "настоящая" концентрация в индексах в точке x (м)
+    const g = (c, w, a) => a * Math.exp(-(((x - c) / w) ** 2));
+    return [1 + g(6.3, 0.9, 140), 4 + g(6.0, 1.2, 38), 12 + g(6.4, 1.6, 30), 5 + g(6.5, 1.0, 120)];
+  }
+  front() { return this.dist < 3.2 && !this.avoided ? Math.round((3.2 - this.dist) * 100 + 20) : 400; }
+  command(name) {
+    this.cmdId++; this.ack = this.cmdId;
+    this.emit(`SENT,${this.cmdId},${name}`);
+    const s = this.state;
+    if (name === "START" && ["READY", "DONE", "HOLD"].includes(s)) { this.dist = 0; this.target = 0.5; this.avoided = false; this.enter("SAMPLE"); }
+    else if (name === "STOP" && ["DRIVE", "SAMPLE", "AVOID", "ALARM", "RETREAT", "MANUAL"].includes(s)) this.enter("HOLD");
+    else if (name === "RESUME" && s === "HOLD") { this.target = this.dist + 0.25; this.enter("DRIVE"); }
+    else if (name === "RECAL" && ["WARM", "READY", "DONE", "HOLD"].includes(s)) this.enter("CAL");
+    else if (name.startsWith("MAN_") && !["WARM", "CAL"].includes(s)) {
+      if (s !== "MANUAL") this.ret = ["READY", "DONE"].includes(s) ? s : "HOLD";
+      this.manual = name.slice(4); this.enter("MANUAL");
+    }
+    setTimeout(() => this.send(false), 250);
+  }
+  get overall() { const m = Math.max(...this.idx); return m >= 100 ? 2 : m >= 50 ? 1 : 0; }
+  send(pt) {
+    const i = this.idx.map(v => Math.round(Math.min(150, Math.max(0, v))));
+    const ppm = (v, w, d) => v < 50 ? v / 50 * w : w + (v - 50) / 50 * (d - w);
+    const dev = v => v < 50 ? v / 50 * 35 : Math.min(100, 35 + (v - 50) / 50 * 25);
+    const calibrated = !["WARM", "CAL"].includes(this.state);
+    const vals = calibrated
+      ? [Math.round(ppm(i[0], 5000, 10000)), Math.round(ppm(i[1], 25, 50)), Math.round(dev(i[2])), Math.round(dev(i[3]))]
+      : [0, 0, 0, 0];
+    const idx = calibrated ? i : [0, 0, 0, 0];
+    const warm = this.state === "WARM" ? Math.max(0, Math.ceil((8000 - (this.now - this.t0)) / 1000)) : 0;
+    const rssi = Math.round(-52 - this.dist * 3 - Math.random() * 4);
+    this.seq++;
+    this.emit(`TEL,${this.seq},${this.state},${Math.round(this.dist * 100)},${vals.join(",")},${idx.join(",")},` +
+      `${calibrated ? this.overall : 0},${this.front()},${pt ? 1 : 0},${this.ack},74,${warm},${rssi},${(8 + Math.random() * 2).toFixed(1)}`);
+    this.lastTel = this.now;
+  }
+  tick(dt) {
+    this.now += dt;
+    const inS = this.now - this.t0, v = 0.3 * dt / 1000;
+    // датчики реагируют с задержкой (как MQ)
+    const f = this.field(this.dist);
+    this.idx = this.idx.map((x, k) => x + (f[k] + (Math.random() - 0.5) * 3 - x) * 0.12);
+    const ov = this.overall;
+    switch (this.state) {
+      case "WARM": if (inS > 8000) this.enter("CAL"); break;
+      case "CAL": if (inS > 3000) this.enter("READY"); break;
+      case "DRIVE":
+        if (ov === 2) { this.enter("ALARM"); this.send(true); break; }
+        if (this.front() < 25) { this.enter("AVOID"); break; }
+        this.dist += ov === 1 ? v * 0.66 : v;
+        if (this.dist >= this.target) this.enter("SAMPLE");
+        break;
+      case "SAMPLE":
+        if (ov === 2) { this.enter("ALARM"); this.send(true); break; }
+        if (inS > 2500) {
+          this.send(true);
+          if (this.dist >= 10) { this.enter("DONE"); break; }
+          this.target = this.dist + (ov === 1 ? 0.25 : 0.5);
+          this.enter("DRIVE");
+        }
+        break;
+      case "AVOID": if (inS > 2600) { this.avoided = true; this.enter("DRIVE"); } break;
+      case "ALARM": if (inS > 4000) this.enter("RETREAT"); break;
+      case "RETREAT": this.dist = Math.max(0, this.dist - v); if (inS > 1500) this.enter("HOLD"); break;
+      case "MANUAL":
+        if (this.manual === "F") this.dist += v; if (this.manual === "B") this.dist = Math.max(0, this.dist - v);
+        if (inS > 500) this.enter(this.ret);
+        break;
+    }
+    if (this.now - this.lastTel >= 1000) this.send(false);
+  }
+}
+
+function stopDemo() {
+  if (demo) { demo.stop(); demo = null; $("btnDemo").classList.remove("active"); $("btnDemo").textContent = "▶ Демо-режим"; }
+}
+$("btnDemo").addEventListener("click", () => {
+  if (demo) { stopDemo(); log("Демо остановлено"); last = null; lastRx = 0; points = []; render(); return; }
+  if (writer) { alert("Сначала отключите базу (перезагрузите страницу)."); return; }
+  last = null; points = []; lastRx = 0;
+  demo = new RoverSim(handleLine);
+  $("btnDemo").classList.add("active"); $("btnDemo").textContent = "■ Остановить демо";
+  log("Демо-режим: симуляция тоннеля 10 м с газовым карманом на ~6 м");
+  render();
+});
+
+// ------------------------------------------------------------------
+buildTiles();
+render();
+setInterval(renderLink, 500);
+log("Пульт готов. Chrome/Edge → «Подключить базу», или «Демо-режим» без железа.");
+</script>
+</body>
+</html>

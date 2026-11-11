@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Барлаушы — 3D-схема системы</title>
+<link rel="stylesheet" href="css/style.css">
+<style>
+  html, body { height: 100%; overflow: hidden; }
+  #gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+  #gl.drag { cursor: grabbing; }
+  .ui { position: fixed; z-index: 5; }
+  #title { top: 14px; left: 16px; pointer-events: none; }
+  #title h1 { font-size: 26px; text-transform: uppercase; margin: 0; }
+  #title h1 span { color: var(--yellow); }
+  #title p { margin: 2px 0 0; color: var(--text-secondary); font-size: 14px; }
+  #tools { top: 14px; right: 16px; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; max-width: 560px; }
+  #tools button, #tools a { font: 600 13px var(--body); padding: 7px 11px; border-radius: 7px; border: 1px solid var(--border); background: #1a1a18e6; color: var(--text-primary); cursor: pointer; text-decoration: none; }
+  #tools button.on { border-color: var(--yellow); color: var(--yellow); }
+  #legend { left: 16px; bottom: 16px; background: #1a1a18e6; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font-size: 13px; }
+  #legend b { display: block; font: 600 13px var(--head); letter-spacing: .08em; text-transform: uppercase; color: var(--yellow); margin-bottom: 4px; }
+  #legend div { display: flex; align-items: center; gap: 8px; color: var(--text-secondary); }
+  #legend i { width: 22px; height: 5px; border-radius: 3px; display: inline-block; }
+  #info { right: 16px; bottom: 16px; width: 330px; background: #1a1a18f0; border: 1px solid var(--border); border-left: 4px solid var(--yellow); border-radius: 10px; padding: 12px 14px; font-size: 14px; }
+  #info h3 { margin: 0 0 4px; font-size: 18px; }
+  #info p { margin: 0; color: var(--text-secondary); }
+  #info .pins { margin-top: 6px; font: 13px ui-monospace, Consolas, monospace; color: var(--text-primary); }
+  #labels { position: fixed; inset: 0; pointer-events: none; z-index: 3; }
+  .lbl { position: absolute; transform: translate(-50%, -100%); white-space: nowrap; font: 600 12px var(--body); color: var(--text-primary);
+         background: #0f0f0ecc; border: 1px solid var(--border); border-radius: 5px; padding: 2px 6px; }
+  .lbl::after { content: ""; position: absolute; left: 50%; top: 100%; width: 1px; height: 8px; background: var(--text-muted); }
+  .lbl.flow { color: var(--yellow); border-color: #5c4a10; }
+  .lbl.big { font-size: 14px; border-color: var(--yellow); }
+  .hidden { display: none !important; }
+  @media (max-width: 760px) { #legend { display: none; } #info { left: 10px; right: 10px; width: auto; } #title h1 { font-size: 20px; } #tools { top: 70px; left: 10px; right: 10px; justify-content: flex-start; } }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="labels"></div>
+
+<div class="ui" id="title">
+  <h1>Барлаушы · <span>3D-схема</span></h1>
+  <p>Тяни мышкой — вращать · колесо — масштаб · правая кнопка — сдвиг · наведи на провод или плату</p>
+</div>
+<div class="ui" id="tools">
+  <button data-view="all" class="on">Вся система</button>
+  <button data-view="rover">Ровер крупно</button>
+  <button data-view="top">Сверху</button>
+  <button id="tLabels" class="on">Подписи</button>
+  <button id="tAnim" class="on">Поток данных</button>
+  <button id="tSpin">Авто-вращение</button>
+  <a href="index.html">← На сайт</a>
+</div>
+<div class="ui" id="legend">
+  <b>Провода</b>
+  <div><i style="background:#ff7a1a"></i>батарея 7,4 В</div>
+  <div><i style="background:#e8202a"></i>питание 5 В</div>
+  <div><i style="background:#6b6b6b"></i>GND (общий минус)</div>
+  <div><i style="background:#2ecc71"></i>аналог: датчики MQ → A0–A3</div>
+  <div><i style="background:#2f80ed"></i>управление моторами (L298N)</div>
+  <div><i style="background:#ffb36b"></i>моторы</div>
+  <div><i style="background:#b07cff"></i>UART Mega ↔ LilyGO</div>
+  <div><i style="background:#e6e6e6"></i>серво, ультразвук, буззер</div>
+  <div><i style="background:#22c1c3"></i>экран LCD1602</div>
+  <div style="margin-top:4px"><i style="background:#ffc400;height:8px"></i>пакет данных в движении</div>
+</div>
+<div class="ui" id="info">
+  <h3 id="infoT">Наведи на деталь</h3>
+  <p id="infoD">Каждый провод и каждая плата подписаны: что это, куда подключено и зачем.</p>
+  <div class="pins" id="infoP"></div>
+</div>
+
+<script>
+"use strict";
+// =====================================================================
+//  Мини-движок WebGL2 (без библиотек — работает и без интернета)
+// =====================================================================
+const canvas = document.getElementById("gl");
+const gl = canvas.getContext("webgl2", { antialias: true });
+if (!gl) { document.getElementById("infoT").textContent = "Браузер не поддерживает WebGL2"; }
+
+// ---------- матрицы (column-major) ----------
+const M4 = {
+  I: () => [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1],
+  mul(a, b) { const o = new Array(16); for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) { let s = 0; for (let k = 0; k < 4; k++) s += a[k*4+r] * b[c*4+k]; o[c*4+r] = s; } return o; },
+  T: (x, y, z) => [1,0,0,0, 0,1,0,0, 0,0,1,0, x,y,z,1],
+  S: (x, y, z) => [x,0,0,0, 0,y,0,0, 0,0,z,0, 0,0,0,1],
+  RX(a) { const c = Math.cos(a), s = Math.sin(a); return [1,0,0,0, 0,c,s,0, 0,-s,c,0, 0,0,0,1]; },
+  RY(a) { const c = Math.cos(a), s = Math.sin(a); return [c,0,-s,0, 0,1,0,0, s,0,c,0, 0,0,0,1]; },
+  RZ(a) { const c = Math.cos(a), s = Math.sin(a); return [c,s,0,0, -s,c,0,0, 0,0,1,0, 0,0,0,1]; },
+  persp(fy, asp, n, f) { const t = 1 / Math.tan(fy / 2); return [t/asp,0,0,0, 0,t,0,0, 0,0,(f+n)/(n-f),-1, 0,0,2*f*n/(n-f),0]; },
+  look(e, c, u) {
+    let z = norm(sub(e, c)), x = norm(cross(u, z)), y = cross(z, x);
+    return [x[0],y[0],z[0],0, x[1],y[1],z[1],0, x[2],y[2],z[2],0, -dot(x,e),-dot(y,e),-dot(z,e),1];
+  },
+  nmat(m) { // обратная транспонированная 3x3
+    const a = m[0], b = m[1], c = m[2], d = m[4], e = m[5], f = m[6], g = m[8], h = m[9], i = m[10];
+    const A = e*i - f*h, B = -(d*i - f*g), C = d*h - e*g, det = a*A + b*B + c*C || 1;
+    return [A/det, B/det, C/det, -(b*i - c*h)/det, (a*i - c*g)/det, -(a*h - b*g)/det, (b*f - c*e)/det, -(a*f - c*d)/det, (a*e - b*d)/det];
+  },
+};
+const sub = (a, b) => [a[0]-b[0], a[1]-b[1], a[2]-b[2]];
+const add = (a, b) => [a[0]+b[0], a[1]+b[1], a[2]+b[2]];
+const scl = (a, s) => [a[0]*s, a[1]*s, a[2]*s];
+const dot = (a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+const cross = (a, b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+const len = a => Math.hypot(a[0], a[1], a[2]);
+const norm = a => { const l = len(a) || 1; return [a[0]/l, a[1]/l, a[2]/l]; };
+const lerp = (a, b, t) => [a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t];
+const hex = h => [parseInt(h.slice(1,3),16)/255, parseInt(h.slice(3,5),16)/255, parseInt(h.slice(5,7),16)/255];
+
+// ---------- шейдеры ----------
+const VS = `#version 300 es
+layout(location=0) in vec3 aPos; layout(location=1) in vec3 aNor;
+uniform mat4 uVP, uM; uniform mat3 uN;
+out vec3 vN; out vec3 vW;
+void main(){ vec4 w = uM * vec4(aPos,1.0); vW = w.xyz; vN = normalize(uN * aNor); gl_Position = uVP * w; }`;
+const FS = `#version 300 es
+precision highp float;
+in vec3 vN; in vec3 vW;
+uniform vec3 uC, uEye; uniform float uA, uE, uSh, uHi, uGrid;
+out vec4 o;
+void main(){
+  vec3 n = normalize(vN); vec3 L = normalize(vec3(0.45, 1.0, 0.6));
+  float dif = max(dot(n, L), 0.0);
+  float hemi = 0.5 + 0.5 * n.y;
+  vec3 V = normalize(uEye - vW); vec3 H = normalize(L + V);
+  float spec = pow(max(dot(n, H), 0.0), 40.0) * uSh;
+  vec3 c = uC * (0.30 + 0.22 * hemi + 0.62 * dif) + vec3(spec);
+  if (uGrid > 0.5) {
+    vec2 g = abs(fract(vW.xz / 10.0 - 0.5) - 0.5) / fwidth(vW.xz / 10.0);
+    float line = 1.0 - min(min(g.x, g.y), 1.0);
+    float fade = clamp(1.0 - length(vW.xz - vec2(40.0, 0.0)) / 160.0, 0.0, 1.0);
+    c = mix(c, vec3(0.30, 0.29, 0.25), line * 0.6 * fade);
+  }
+  c = mix(c, uC, uE);
+  c = mix(c, vec3(1.0, 0.85, 0.2), uHi * 0.45);
+  o = vec4(c, uA);
+}`;
+const FSP = `#version 300 es
+precision highp float; uniform vec3 uP; out vec4 o; void main(){ o = vec4(uP, 1.0); }`;
+function prog(vs, fs) {
+  const p = gl.createProgram();
+  for (const [t, src] of [[gl.VERTEX_SHADER, vs], [gl.FRAGMENT_SHADER, fs]]) {
+    const s = gl.createShader(t); gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) console.error(gl.getShaderInfoLog(s));
+    gl.attachShader(p, s);
+  }
+  gl.linkProgram(p);
+  const u = {}; const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++) { const name = gl.getActiveUniform(p, i).name; u[name] = gl.getUniformLocation(p, name); }
+  return { p, u };
+}
+const P = prog(VS, FS), PP = prog(VS, FSP);
+
+// ---------- геометрия ----------
+function geom(pos, nor, idx) {
+  const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+  const b = (data, loc) => { const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(data), gl.STATIC_DRAW); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 3, gl.FLOAT, false, 0, 0); };
+  b(pos, 0); b(nor, 1);
+  const ib = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(idx), gl.STATIC_DRAW);
+  gl.bindVertexArray(null);
+  return { vao, n: idx.length };
+}
+function boxGeom() {
+  const P = [], N = [], I = [];
+  const f = [[[1,0,0],[0,1,0],[0,0,1]], [[-1,0,0],[0,1,0],[0,0,-1]], [[0,1,0],[0,0,1],[1,0,0]], [[0,-1,0],[0,0,-1],[1,0,0]], [[0,0,1],[1,0,0],[0,1,0]], [[0,0,-1],[-1,0,0],[0,1,0]]];
+  for (const [n, u, v] of f) {
+    const b = P.length / 3;
+    for (const [su, sv] of [[-1,-1],[1,-1],[1,1],[-1,1]]) {
+      P.push(...[0,1,2].map(k => n[k]*0.5 + u[k]*su*0.5 + v[k]*sv*0.5)); N.push(...n);
+    }
+    const c = cross(u, v), flip = dot(c, n) < 0;
+    I.push(...(flip ? [b, b+2, b+1, b, b+3, b+2] : [b, b+1, b+2, b, b+2, b+3]));
+  }
+  return geom(P, N, I);
+}
+function cylGeom(seg = 28) {
+  const P = [], N = [], I = [];
+  for (let i = 0; i <= seg; i++) { const a = i / seg * Math.PI * 2, x = Math.cos(a), z = Math.sin(a);
+    P.push(x, -0.5, z, x, 0.5, z); N.push(x, 0, z, x, 0, z); }
+  for (let i = 0; i < seg; i++) { const a = i*2; I.push(a, a+1, a+3, a, a+3, a+2); }
+  for (const y of [-0.5, 0.5]) { const c = P.length / 3; P.push(0, y, 0); N.push(0, Math.sign(y), 0);
+    for (let i = 0; i <= seg; i++) { const a = i / seg * Math.PI * 2; P.push(Math.cos(a), y, Math.sin(a)); N.push(0, Math.sign(y), 0); }
+    for (let i = 0; i < seg; i++) I.push(...(y > 0 ? [c, c+2+i, c+1+i] : [c, c+1+i, c+2+i])); }
+  return geom(P, N, I);
+}
+function sphGeom(la = 14, lo = 22) {
+  const P = [], N = [], I = [];
+  for (let i = 0; i <= la; i++) { const t = i / la * Math.PI;
+    for (let j = 0; j <= lo; j++) { const p = j / lo * Math.PI * 2; const v = [Math.sin(t)*Math.cos(p), Math.cos(t), Math.sin(t)*Math.sin(p)]; P.push(...v); N.push(...v); } }
+  for (let i = 0; i < la; i++) for (let j = 0; j < lo; j++) { const a = i*(lo+1)+j, b = a+lo+1; I.push(a, b, a+1, b, b+1, a+1); }
+  return geom(P, N, I);
+}
+// сглаживание ломаной (Catmull-Rom)
+function smooth(pts, k = 7) {
+  if (pts.length < 3) return pts;
+  const out = [];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[Math.max(0, i-1)], p1 = pts[i], p2 = pts[i+1], p3 = pts[Math.min(pts.length-1, i+2)];
+    for (let s = 0; s < k; s++) { const t = s / k, t2 = t*t, t3 = t2*t;
+      out.push([0,1,2].map(d => 0.5*((2*p1[d]) + (-p0[d]+p2[d])*t + (2*p0[d]-5*p1[d]+4*p2[d]-p3[d])*t2 + (-p0[d]+3*p1[d]-3*p2[d]+p3[d])*t3))); }
+  }
+  out.push(pts[pts.length-1]);
+  return out;
+}
+function tubeGeom(path, r, rad = 8) {
+  const P = [], N = [], I = [];
+  let prevN = null;
+  for (let i = 0; i < path.length; i++) {
+    const t = norm(sub(path[Math.min(i+1, path.length-1)], path[Math.max(i-1, 0)]));
+    let n = prevN ? norm(sub(prevN, scl(t, dot(prevN, t)))) : norm(cross(t, Math.abs(t[1]) < 0.9 ? [0,1,0] : [1,0,0]));
+    if (!isFinite(n[0])) n = norm(cross(t, [1,0,0]));
+    prevN = n; const bn = cross(t, n);
+    for (let j = 0; j <= rad; j++) { const a = j / rad * Math.PI * 2;
+      const d = add(scl(n, Math.cos(a)), scl(bn, Math.sin(a)));
+      P.push(...add(path[i], scl(d, r))); N.push(...d); }
+  }
+  for (let i = 0; i < path.length - 1; i++) for (let j = 0; j < rad; j++) {
+    const a = i*(rad+1)+j, b = a+rad+1; I.push(a, b, a+1, b, b+1, a+1); }
+  return geom(P, N, I);
+}
+const G = { box: boxGeom(), cyl: cylGeom(), sph: sphGeom() };
+
+// ---------- сцена ----------
+const objs = [];               // {g, m, nm, c, a, e, sh, id}
+const info = [null];           // id -> {t, d, p}
+const labels = [];             // {text, pos, cls}
+let curId = 0;
+function part(t, d, p) { info.push({ t, d, p: p || "" }); return (curId = info.length - 1); }
+function add3(g, m, color, o = {}) {
+  const ob = { g, m, nm: M4.nmat(m), c: hex(color), a: o.a ?? 1, e: o.e ?? 0, sh: o.sh ?? 0.15, id: o.id ?? curId, grid: o.grid ? 1 : 0 };
+  objs.push(ob); return ob;
+}
+const box = (p, s, color, o = {}) => add3(G.box, M4.mul(o.parent || M4.I(), M4.mul(M4.mul(M4.T(...p), o.rot || M4.I()), M4.S(...s))), color, o);
+function cyl(p, r, h, color, axis = "y", o = {}) {
+  const R = axis === "x" ? M4.RZ(Math.PI/2) : axis === "z" ? M4.RX(Math.PI/2) : M4.I();
+  return add3(G.cyl, M4.mul(o.parent || M4.I(), M4.mul(M4.mul(M4.T(...p), R), M4.S(r, h, r))), color, o);
+}
+const sph = (p, r, color, o = {}) => add3(G.sph, M4.mul(M4.T(...p), M4.S(r, r, r)), color, o);
+const label = (text, pos, cls = "") => labels.push({ text, pos, cls });
+
+// провод: контрольные точки -> сглаженная трубка
+const wires = [];
+function wire(pts, color, title, desc, pins, r = 0.13) {
+  const id = part(title, desc, pins);
+  const path = smooth(pts);
+  add3(tubeGeom(path, r), M4.I(), color, { id, sh: 0.35 });
+  const w = { path, color, id }; wires.push(w); return w;
+}
+// путь провода: вверх от точки a, по воздуху, вниз в точку b
+function route(a, b, h = 1.2, mid = []) { return [a, [a[0], a[1] + h, a[2]], ...mid, [b[0], b[1] + h, b[2]], b]; }
+
+const C = { bat: "#ff7a1a", v5: "#e8202a", gnd: "#6b6b6b", an: "#2ecc71", ctl: "#2f80ed", mot: "#ffb36b", uart: "#b07cff", sig: "#e6e6e6", lcd: "#22c1c3" };
+
+// ================= ПОЛ =================
+add3(G.box, M4.mul(M4.T(40, -0.25, 0), M4.S(420, 0.5, 260)), "#151513", { grid: true, id: 0, sh: 0 });
+
+// ================= РОВЕР =================
+const Y1 = 5.35, Y2 = 9.55;   // верх нижней и верхней палубы
+part("Шасси 4WD", "Две прозрачные акриловые палубы на латунных стойках: снизу — силовая часть, сверху — электроника.");
+box([0, 5.2, 0], [26, 0.3, 15], "#cfe3f2", { a: 0.28, sh: 0.6 });
+box([0, 9.4, 0], [26, 0.3, 15], "#cfe3f2", { a: 0.24, sh: 0.6 });
+for (const [x, z] of [[11, 6], [11, -6], [-11, 6], [-11, -6]]) cyl([x, 7.3, z], 0.25, 4, "#c9a227", "y", { sh: 0.8 });
+
+part("Колёса и мотор-редукторы ×4", "Жёлтые TT-моторы. Левая пара подключена параллельно к выходу OUT1/OUT2 драйвера, правая — к OUT3/OUT4: робот поворачивает как танк.", "L298N OUT1/2 → левые · OUT3/4 → правые");
+const motorTerm = [];
+for (const sx of [1, -1]) for (const sz of [1, -1]) {
+  cyl([sx*8.5, 3.3, sz*9.1], 3.3, 2.6, "#141414", "z", { sh: 0.05 });
+  cyl([sx*8.5, 3.3, sz*9.1], 1.9, 2.7, "#f2c200", "z");
+  box([sx*6.2, 3.6, sz*5.4], [6.4, 2.2, 1.9], "#f2c200");
+  cyl([sx*2.2, 3.6, sz*5.4], 1.0, 2.2, "#b9b9b9", "x", { sh: 0.8 });
+  cyl([sx*4.4, 3.6, sz*6.6], 1.05, 0.25, "#111", "z");     // диск энкодера
+  motorTerm.push({ x: sx, z: sz, a: [sx*1.05, 3.9, sz*5.4 + 0.35], b: [sx*1.05, 3.3, sz*5.4 - 0.35] });
+}
+label("Моторы ×4", [8.5, 7.4, 10.5]);
+
+part("Аккумуляторы Li-ion 2S (7,4 В)", "Две банки 18650 последовательно: 7,4–8,4 В. Питают моторы через L298N, Mega через VIN и всё остальное через понижающий LM2596.", "+ → L298N 12V, LM2596 IN+, Mega VIN · − → общий GND");
+box([-7, 5.95, -1.6], [7.6, 1.2, 4.2], "#111111");
+for (const dz of [-0.95, 0.95]) cyl([-7, 6.75, -1.6 + dz], 0.9, 6.5, "#2a7de1", "x", { sh: 0.5 });
+const BATP = [-3.4, 6.7, -0.6], BATN = [-3.4, 6.7, -2.6];
+label("Li-ion 2S · 7,4 В", [-7, 8.2, -1.6]);
+
+part("Драйвер моторов L298N", "Красная плата с радиатором. Получает 7,4 В от батареи и сигналы от Mega: ENA/ENB — скорость (ШИМ), IN1–IN4 — направление.", "ENA←D5 · IN1←22 · IN2←23 · IN3←24 · IN4←25 · ENB←D6");
+box([4, 5.5, 0], [4.3, 0.15, 4.3], "#c4161c", { sh: 0.3 });
+box([3.4, 6.9, -0.4], [2.6, 2.6, 1.0], "#1b1b1b", { sh: 0.5 });
+for (const z of [-2.0, 2.0]) box([4, 6.0, z], [1.6, 0.8, 0.7], "#1f6fd1");
+box([2.2, 6.0, 0], [0.7, 0.8, 2.2], "#1f6fd1");
+box([5.95, 5.95, 0], [0.25, 0.6, 3.2], "#111");
+const L298 = { pin: k => [5.95, 6.3, -1.25 + k*0.5], v12: [2.2, 6.45, -0.75], gnd: [2.2, 6.45, 0], out: [[3.5, 6.45, -2.0], [4.5, 6.45, -2.0], [3.5, 6.45, 2.0], [4.5, 6.45, 2.0]] };
+label("L298N", [4, 8.6, 1.4]);
+
+part("Понижающий преобразователь LM2596", "Делает ровно 5,0 В из 7,4 В для датчиков MQ, серво, ультразвука, буззера и LilyGO. Настроить потенциометром ДО подключения нагрузки!", "IN+ ← батарея + · OUT+ → шина 5 В");
+box([-1.5, 5.45, 4.5], [4.3, 0.15, 2.1], "#1f4fa8", { sh: 0.3 });
+cyl([-1.8, 6.1, 4.5], 0.7, 1.1, "#1a1a1a");
+box([-0.2, 5.8, 4.0], [0.7, 0.6, 0.6], "#2f7fe0");
+const LM = { inP: [-3.5, 5.75, 4.0], inN: [-3.5, 5.75, 5.0], outP: [0.5, 5.75, 4.0], outN: [0.5, 5.75, 5.0] };
+label("LM2596 → 5 В", [-1.5, 7.6, 5.6]);
+
+part("Arduino Mega 2560", "Мозг робота: читает 4 датчика, управляет моторами, объезжает препятствия, включает сирену и шлёт телеметрию в LilyGO раз в секунду.", "A0–A3 датчики · D5/D6 ШИМ · 22–25 моторы · D9 серво · 30/31 сонар · 32 буззер · 40–45 LCD · TX1/RX1 LilyGO");
+box([-1.5, 9.65, 0], [10.2, 0.18, 5.3], "#0e6aa8", { sh: 0.35 });
+box([-0.6, 9.85, 0], [1.6, 0.2, 1.6], "#111");
+box([-6.0, 10.15, 1.4], [1.4, 1.0, 1.2], "#c8c8c8", { sh: 0.9 });
+box([-6.0, 10.15, -1.6], [1.4, 1.0, 0.9], "#111");
+box([-0.6, 10.0, -2.3], [6.8, 0.5, 0.25], "#111");
+box([-1.6, 10.0, 2.3], [8.6, 0.5, 0.25], "#111");
+box([3.15, 10.0, 0], [0.6, 0.5, 4.6], "#111");
+const MEGA = {
+  A: i => [0.4 + i*0.3, 10.3, -2.3],
+  v5: [-2.6, 10.3, -2.3], gnd: [-2.3, 10.3, -2.3], gnd2: [-2.0, 10.3, -2.3], vin: [-1.6, 10.3, -2.3],
+  d5: [1.9, 10.3, 2.3], d6: [1.6, 10.3, 2.3], d9: [0.6, 10.3, 2.3], tx1: [-3.4, 10.3, 2.3], rx1: [-3.1, 10.3, 2.3],
+  dbl: p => { const row = Math.floor((p - 22) / 2); return [p % 2 === 0 ? 2.98 : 3.32, 10.3, -2.1 + row * 0.28]; },
+};
+label("Arduino Mega 2560", [-1.5, 12.2, 0]);
+
+part("Макетная плата: шины 5 В и GND", "Сюда приходит 5 В от LM2596 и раздаётся датчикам, серво и ультразвуку. Все минусы (GND) общие.", "красная шина = 5 В · синяя = GND");
+box([7.6, 9.85, 0], [3.0, 0.5, 2.4], "#e8e6df", { sh: 0.2 });
+box([7.6, 10.11, 0.85], [2.8, 0.03, 0.12], "#e8202a", { e: 0.3 });
+box([7.6, 10.11, -0.85], [2.8, 0.03, 0.12], "#2f6be0", { e: 0.3 });
+const rail5 = x => [x, 10.12, 0.85], railG = x => [x, 10.12, -0.85];
+
+const MQ = [
+  { z: -6.0, n: "MQ-4", gas: "метан CH₄", short: "метан", a: 0 },
+  { z: -3.2, n: "MQ-7", gas: "угарный газ CO", short: "CO", a: 1 },
+  { z: 3.2, n: "MQ-135", gas: "NH₃ / H₂S / «канализация»", short: "канализ. газы", a: 2 },
+  { z: 6.0, n: "MQ-2", gas: "пропан, бутан, горючие", short: "пропан", a: 3 },
+];
+MQ.forEach((q, i) => {
+  part(`Датчик ${q.n}`, `Газ: ${q.gas}. Внутри нагреватель и чувствительный слой: в газе его сопротивление падает, Mega видит это как рост напряжения на A${q.a}.`, `VCC ← 5 В · GND · AO → A${q.a} · DO не используется`);
+  box([8.6, 9.75, q.z], [2.2, 0.18, 2.6], "#1d58b8", { sh: 0.3 });
+  cyl([8.9, 10.15, q.z], 1.05, 0.5, "#c47a1c");
+  cyl([8.9, 10.95, q.z], 0.95, 1.2, "#a9adb3", "y", { sh: 0.9 });
+  box([7.55, 10.0, q.z], [0.2, 0.45, 2.0], "#111");
+  q.pin = k => [7.55, 10.3, q.z - 0.75 + k * 0.5];   // VCC, GND, DO, AO
+  label(`${q.n} · ${q.short}`, [8.9, 12.3, q.z]);
+});
+
+part("Сервопривод SG90", "Поворачивает «голову» с ультразвуком влево и вправо, когда впереди препятствие — робот выбирает, где больше места.", "сигнал ← D9 · питание 5 В");
+box([11.7, 10.65, 0], [2.3, 2.2, 1.2], "#2b62c9");
+cyl([11.7, 11.9, 0], 0.35, 0.4, "#eee");
+part("Ультразвук HC-SR04", "Меряет расстояние до стены. Ближе 25 см — робот останавливается и объезжает.", "TRIG ← 30 · ECHO → 31 · VCC 5 В · GND");
+box([12.4, 13.4, 0], [0.15, 2.0, 4.5], "#1d58b8", { sh: 0.3 });
+for (const z of [-1.3, 1.3]) cyl([13.0, 13.4, z], 0.8, 1.1, "#c0c4c8", "x", { sh: 0.9 });
+const SON = k => [12.2, 12.45, -0.75 + k * 0.5];   // VCC, TRIG, ECHO, GND
+label("HC-SR04 на серво", [12.4, 15.8, 0]);
+
+part("LilyGO LoRa32 (на роботе)", "ESP32 + радиомодуль LoRa 433 МГц. Получает строки телеметрии от Mega по UART и отправляет их по радио на базу. Обратно принимает команды СТАРТ/СТОП.", "GPIO34 ← TX1 Mega (через делитель) · GPIO13 → RX1 Mega · 5V/GND от LM2596");
+box([-9, 9.75, 4.6], [5.1, 0.2, 2.6], "#151515", { sh: 0.3 });
+box([-8.4, 9.92, 4.6], [2.4, 0.12, 1.4], "#0b1c3a", { e: 0.35 });
+box([-10.6, 9.95, 4.4], [1.5, 0.22, 1.5], "#b8bcc0", { sh: 0.9 });
+cyl([-11.6, 10.1, 5.5], 0.3, 0.5, "#d4a52c", "y", { sh: 0.9 });
+cyl([-11.6, 14.7, 5.5], 0.35, 9, "#111");
+const ROVER_ANT = [-11.6, 19.3, 5.5];
+const LG = { rx: [-6.9, 10.05, 3.5], tx: [-7.3, 10.05, 3.5], v5: [-6.9, 10.05, 5.7], gnd: [-7.3, 10.05, 5.7] };
+label("Ровер «Барлаушы»", [-9, 21, 5.5], "big");
+
+part("Делитель напряжения 5 В → 3,3 В", "Три резистора по 10 кОм. Mega шлёт 5 В, а вход ESP32 выдерживает только 3,3 В: делитель защищает LilyGO.", "TX1 — 10k — GPIO34 — 10k — 10k — GND");
+for (const dz of [0, 0.32, 0.64]) cyl([-5.0, 9.8, 2.9 + dz], 0.17, 0.9, "#d9c08f", "x");
+
+part("Экран LCD1602", "Показывает на роботе газ и режим: прогрев, движение, тревога.", "RS←40 · E←41 · D4–D7←42–45 · 5 В · GND");
+box([-12.6, 11.5, -3.6], [0.2, 3.6, 8.0], "#167a3a", { sh: 0.3 });
+box([-12.75, 11.6, -3.6], [0.1, 1.6, 6.4], "#3b48c9", { e: 0.45 });
+box([-12.5, 13.15, -5.8], [0.3, 0.3, 3.4], "#111");
+const LCDP = k => [-12.5, 13.3, -7.3 + k * 0.25];
+label("LCD1602", [-12.6, 15.2, -3.6]);
+
+part("Буззер — сирена", "При опасном газе воет, пока робот стоит и отъезжает назад.", "+ ← D32 · − → GND");
+cyl([-5.0, 10.05, -5.6], 0.65, 0.9, "#111");
+label("Буззер", [-5.0, 11.6, -5.6]);
+
+// ---------------- ПРОВОДА РОВЕРА ----------------
+const up = (p, h) => [p[0], p[1] + h, p[2]];
+// питание
+wire([BATP, up(BATP, 1.0), [0, 7.4, -1.6], up(L298.v12, 0.8), L298.v12], C.bat, "Батарея + → L298N 12V", "7,4 В на моторы через драйвер.", "BAT+ → L298N «12V»");
+wire([BATN, up(BATN, 0.6), [0.4, 6.9, -2.2], up(L298.gnd, 0.6), L298.gnd], C.gnd, "Батарея − → L298N GND", "Общий минус. Без общего GND сигналы не работают.", "BAT− → L298N GND");
+wire([BATP, up(BATP, 0.8), [-4.6, 7.0, 2.2], up(LM.inP, 0.7), LM.inP], C.bat, "Батарея + → LM2596 IN+", "Вход преобразователя 5 В.", "BAT+ → LM2596 IN+");
+wire([BATN, up(BATN, 0.4), [-4.9, 6.6, 2.4], up(LM.inN, 0.6), LM.inN], C.gnd, "Батарея − → LM2596 IN−", "Минус преобразователя.", "BAT− → LM2596 IN−");
+wire([BATP, up(BATP, 1.6), [-3.0, 8.6, -1.4], [-2.2, 9.0, -2.0], up(MEGA.vin, 0.7), MEGA.vin], C.bat, "Батарея + → Mega VIN", "Mega питается от собственного стабилизатора на плате.", "BAT+ → VIN");
+wire([BATN, up(BATN, 1.4), [-2.8, 8.6, -2.6], up(MEGA.gnd2, 0.7), MEGA.gnd2], C.gnd, "Батарея − → Mega GND", "Общий минус с Mega.", "BAT− → GND");
+wire([LM.outP, up(LM.outP, 1.0), [4.8, 8.4, 2.6], [6.3, 9.0, 1.6], up(rail5(6.4), 0.6), rail5(6.4)], C.v5, "LM2596 OUT+ → шина 5 В", "Отсюда питаются датчики, серво и ультразвук.", "OUT+ → красная шина");
+wire([LM.outN, up(LM.outN, 0.9), [5.0, 8.3, 2.0], [6.4, 8.9, -0.2], up(railG(6.5), 0.6), railG(6.5)], C.gnd, "LM2596 OUT− → шина GND", "Общий минус шины.", "OUT− → синяя шина");
+wire([LM.outP, up(LM.outP, 2.0), [-3.0, 9.2, 5.4], up(LG.v5, 0.8), LG.v5], C.v5, "LM2596 5 В → LilyGO 5V", "Питание радиомодуля на роботе.", "OUT+ → LilyGO 5V");
+wire([LM.outN, up(LM.outN, 1.8), [-3.2, 9.1, 5.9], up(LG.gnd, 0.8), LG.gnd], C.gnd, "LM2596 GND → LilyGO GND", "Общий минус с LilyGO.", "OUT− → LilyGO GND");
+// датчики
+MQ.forEach((q, i) => {
+  wire([q.pin(3), up(q.pin(3), 0.9 + i*0.25), [4.6, 11.0 + i*0.2, (q.z + MEGA.A(q.a)[2]) / 2], up(MEGA.A(q.a), 0.8 + i*0.2), MEGA.A(q.a)], C.an,
+    `${q.n} AO → A${q.a}`, `Аналоговый сигнал датчика (${q.gas}). Чем больше газа — тем выше напряжение.`, `${q.n}.AO → Mega A${q.a}`);
+  const side = q.z < 0 ? -1 : 1;
+  wire([q.pin(0), up(q.pin(0), 0.5), up(rail5(6.9 + i*0.5), 0.5), rail5(6.9 + i*0.5)], C.v5, `5 В → ${q.n} VCC`, "Питание нагревателя датчика (~150 мА).", `шина 5 В → ${q.n}.VCC`, 0.1);
+  wire([q.pin(1), up(q.pin(1), 0.4), up(railG(7.0 + i*0.5), 0.4), railG(7.0 + i*0.5)], C.gnd, `GND → ${q.n}`, "Общий минус датчика.", `шина GND → ${q.n}.GND`, 0.1);
+});
+// моторы
+const ctl = ["ENA ← D5", "IN1 ← 22", "IN2 ← 23", "IN3 ← 24", "IN4 ← 25", "ENB ← D6"];
+const ctlDst = [MEGA.d5, MEGA.dbl(22), MEGA.dbl(23), MEGA.dbl(24), MEGA.dbl(25), MEGA.d6];
+ctl.forEach((t, k) => {
+  const a = L298.pin(k), b = ctlDst[k];
+  wire([a, [a[0] + 0.6, 7.4, a[2]], [4.7, 8.6 + k*0.12, a[2]], [4.7, 10.6 + k*0.15, b[2] * 0.6], up(b, 0.8 + k*0.1), b], C.ctl,
+    `L298N ${t}`, k === 0 || k === 5 ? "ШИМ-сигнал скорости (перемычку ENA/ENB снять!)." : "Направление вращения моторов.", `L298N.${t.replace(" ← ", " ← Mega ")}`);
+});
+motorTerm.forEach((m, i) => {
+  const out = m.z < 0 ? [L298.out[0], L298.out[1]] : [L298.out[2], L298.out[3]];
+  [m.a, m.b].forEach((tp, j) => wire([out[j], up(out[j], 0.5), [out[j][0], 5.0, out[j][2] + m.z * 1.2], [tp[0] * 0.6, 4.6, tp[2]], tp], C.mot,
+    `L298N → мотор ${m.x > 0 ? "передний" : "задний"} ${m.z < 0 ? "левый" : "правый"}`, "Питание мотора; пары моторов одной стороны включены параллельно.", m.z < 0 ? "OUT1/OUT2" : "OUT3/OUT4", 0.11));
+});
+// серво, сонар, буззер
+const SERVO_S = [10.5, 10.2, 0.3], SERVO_P = [10.5, 10.2, 0], SERVO_G = [10.5, 10.2, -0.3];
+wire([SERVO_S, up(SERVO_S, 0.8), [4.0, 11.4, 2.6], up(MEGA.d9, 0.7), MEGA.d9], C.sig, "Серво сигнал ← D9", "ШИМ-импульсы задают угол поворота «головы».", "SG90 оранжевый → D9");
+wire([SERVO_P, up(SERVO_P, 0.4), up(rail5(9.0), 0.4), rail5(9.0)], C.v5, "5 В → серво", "Питание сервопривода от шины 5 В.", "SG90 красный → 5 В", 0.1);
+wire([SERVO_G, up(SERVO_G, 0.3), up(railG(9.0), 0.3), railG(9.0)], C.gnd, "GND → серво", "Минус сервопривода.", "SG90 коричневый → GND", 0.1);
+wire([SON(1), [11.0, 12.2, -0.25], [4.2, 11.6, -1.0], up(MEGA.dbl(30), 0.6), MEGA.dbl(30)], C.sig, "HC-SR04 TRIG ← 30", "Mega посылает импульс 10 мкс — датчик «пищит» ультразвуком.", "TRIG ← D30");
+wire([SON(2), [11.0, 12.0, 0.25], [4.3, 11.3, -0.6], up(MEGA.dbl(31), 0.5), MEGA.dbl(31)], C.sig, "HC-SR04 ECHO → 31", "Длина ответного импульса = расстояние до стены.", "ECHO → D31");
+wire([SON(0), [11.6, 11.6, -0.75], up(rail5(9.4), 0.8), rail5(9.4)], C.v5, "5 В → HC-SR04", "Питание ультразвука.", "VCC → 5 В", 0.1);
+wire([SON(3), [11.6, 11.6, 0.75], up(railG(9.4), 0.8), railG(9.4)], C.gnd, "GND → HC-SR04", "Минус ультразвука.", "GND", 0.1);
+const BZ = [-5.0, 10.5, -5.3], BZN = [-5.0, 10.5, -5.9];
+wire([BZ, up(BZ, 0.6), [0.5, 11.6, -4.0], up(MEGA.dbl(32), 0.9), MEGA.dbl(32)], C.sig, "Буззер + ← D32", "Включение сирены.", "BUZ+ ← D32");
+wire([BZN, up(BZN, 0.4), [-3.5, 10.9, -3.6], up(MEGA.gnd, 0.5), MEGA.gnd], C.gnd, "Буззер − → GND", "Минус буззера.", "BUZ− → GND");
+// UART
+wire([MEGA.tx1, up(MEGA.tx1, 0.8), [-4.4, 10.6, 2.9], [-5.0, 10.1, 2.9], [-6.0, 10.6, 3.2], up(LG.rx, 0.5), LG.rx], C.uart, "Mega TX1 (18) → делитель → LilyGO GPIO34",
+  "Телеметрия раз в секунду: $T,режим,метры,CH4,CO,… Делитель понижает 5 В до 3,3 В.", "TX1 → 10k → GPIO34");
+wire([LG.tx, up(LG.tx, 1.1), [-5.2, 11.2, 2.0], up(MEGA.rx1, 0.9), MEGA.rx1], C.uart, "LilyGO GPIO13 → Mega RX1 (19)", "Команды с базы: START, STOP, RESUME…", "GPIO13 → RX1");
+// LCD
+const lcdNames = ["RS ← 40", "E ← 41", "D4 ← 42", "D5 ← 43", "D6 ← 44", "D7 ← 45"];
+lcdNames.forEach((t, k) => { const a = LCDP(4 + k), b = MEGA.dbl(40 + k);
+  wire([a, up(a, 0.8 + k*0.1), [-6, 13.6 + k*0.12, -3.2 + k*0.1], [1.5, 12.6 + k*0.1, b[2]], up(b, 0.7), b], C.lcd, `LCD ${t}`, "Данные для экрана (4-битный режим).", `LCD.${t}`, 0.09); });
+wire([LCDP(1), up(LCDP(1), 0.6), [-6.0, 12.6, -2.8], up(MEGA.v5, 0.6), MEGA.v5], C.v5, "5 В → LCD", "Питание экрана.", "LCD VDD → 5V", 0.1);
+wire([LCDP(0), up(LCDP(0), 0.5), [-6.5, 12.3, -3.0], up(MEGA.gnd, 0.7), MEGA.gnd], C.gnd, "GND → LCD", "Минус экрана.", "LCD VSS → GND", 0.1);
+
+// тень под ровером
+add3(G.cyl, M4.mul(M4.T(0, 0.02, 0), M4.S(17, 0.02, 12)), "#000000", { a: 0.35, id: 0 });
+
+// ================= БАЗОВАЯ СТАНЦИЯ =================
+part("Стол бригадира", "Базовая станция у входа в колодец/тоннель: LoRa-приёмник, ноутбук и телефон с интернетом.");
+box([64, 4, 0], [46, 8, 26], "#2b2620", { sh: 0.05 });
+
+part("LilyGO LoRa32 — база", "Принимает радиопакеты робота, отдаёт их по USB в ноутбук и по Wi-Fi (хотспот телефона) в MQTT-облако.", "LoRa 433 МГц ← робот · USB → ноутбук · Wi-Fi → телефон");
+box([48, 8.1, -4], [5.1, 0.2, 2.6], "#151515", { sh: 0.3 });
+box([48.6, 8.27, -4], [2.4, 0.12, 1.4], "#0b1c3a", { e: 0.35 });
+cyl([45.6, 12.9, -3.1], 0.35, 9, "#111");
+const BASE_ANT = [45.6, 17.5, -3.1], BASE_BRD = [48, 8.4, -4];
+label("База LilyGO · LoRa", [47, 19.5, -3.5], "big");
+
+part("Ноутбук — локальный пульт", "Пульт оператора по USB: карта газа, тревога, кнопки СТАРТ/СТОП, печать наряда-допуска. Работает даже без интернета.", "USB ← база");
+box([62, 8.3, 1.5], [15, 0.6, 10], "#8a8c90", { sh: 0.5 });
+box([62, 8.62, 2.2], [13, 0.05, 6], "#2a2b2e");
+const SCR = M4.mul(M4.T(62, 13.7, -3.7), M4.RX(-0.2));
+box([0, 0, 0], [15, 10, 0.35], "#8a8c90", { parent: SCR, sh: 0.5 });
+box([0, 0, 0.2], [14, 9, 0.05], "#121210", { parent: SCR, e: 0.6 });
+box([0, 3.7, 0.24], [14, 1.0, 0.04], "#ffc400", { parent: SCR, e: 0.9 });
+box([0, 1.9, 0.24], [12.6, 1.8, 0.04], "#d03b3b", { parent: SCR, e: 0.85 });
+for (let k = 0; k < 9; k++) box([-5.6 + k * 1.0, -0.6, 0.24], [0.9, 1.0, 0.04], k < 6 ? "#0ca30c" : k === 6 ? "#fab219" : "#d03b3b", { parent: SCR, e: 0.85 });
+for (let k = 0; k < 4; k++) box([-4.8 + k * 3.2, -2.9, 0.24], [2.9, 1.8, 0.04], "#24241f", { parent: SCR, e: 0.7 });
+label("Ноутбук · пульт по USB", [62, 20.5, -4]);
+wire([BASE_BRD, [51.5, 8.6, -4], [53.5, 9.0, -2.0], [54.6, 8.7, -0.5]], "#cfcfcf", "USB-кабель база → ноутбук", "Строки TEL от робота и команды СТАРТ/СТОП обратно.", "LilyGO USB ↔ ноутбук", 0.18);
+const USB_PATH = smooth([BASE_BRD, [51.5, 8.6, -4], [53.5, 9.0, -2.0], [54.6, 8.7, -0.5]]);
+
+part("Телефон — Wi-Fi хотспот", "Раздаёт мобильный интернет базе (сеть «Barlaushy»). Через него данные уходят в облако.", "Wi-Fi ← база · 4G/LTE → интернет");
+box([76, 8.25, 7], [3.8, 0.4, 7.6], "#1b1b1d", { sh: 0.6 });
+box([76, 8.47, 7], [3.4, 0.05, 7.0], "#1d3d6b", { e: 0.6 });
+const PHONE = [76, 9.0, 7];
+label("Телефон · хотспот", [76, 11.5, 7.5]);
+
+part("MQTT-брокер (облако)", "Бесплатный публичный брокер broker.emqx.io. База публикует сообщения, сайт на них подписан и получает их мгновенно.", "barlaushy/zhz1407/tel · /mission · /status");
+for (const [dx, dy, dz, r] of [[0, 0, 0, 6.5], [-6.5, -1.6, 1, 4.8], [6.6, -1.4, -0.5, 5.2], [2.5, 3.8, -1, 4.6], [-3, 2.6, 2, 4.2]]) sph([84 + dx, 36 + dy, -18 + dz], r, "#d9dde2", { a: 0.95, sh: 0.2 });
+const CLOUD = [84, 34, -12];
+label("MQTT-облако · broker.emqx.io", [84, 46, -18], "big");
+
+part("Сайт — судьи по QR", "aminowm.github.io/pizzapitch — живой пульт только для просмотра. Открывается с любого телефона по QR-коду.", "WebSocket ← MQTT");
+box([104, 2.2, 8], [6, 4.4, 6], "#2b2620");
+const PH2 = M4.mul(M4.T(104, 9.0, 8), M4.RY(-0.5));
+box([0, 0, 0], [4.4, 9, 0.45], "#1b1b1d", { parent: PH2, sh: 0.6 });
+box([0, 0, 0.25], [4.0, 8.4, 0.05], "#121210", { parent: PH2, e: 0.6 });
+box([0, 3.5, 0.28], [4.0, 0.9, 0.04], "#ffc400", { parent: PH2, e: 0.9 });
+box([0, 1.9, 0.28], [3.6, 1.5, 0.04], "#d03b3b", { parent: PH2, e: 0.85 });
+for (let k = 0; k < 4; k++) box([-1.4 + (k % 2) * 2.0 + 0.4, -0.6 - Math.floor(k / 2) * 1.9, 0.28], [1.8, 1.6, 0.04], "#24241f", { parent: PH2, e: 0.7 });
+const SITE = [104, 9.5, 8];
+label("Сайт · судьи по QR", [104, 16, 8], "big");
+
+// линии связи (полупрозрачные)
+function arc(a, b, h, n = 40) { const m = add(lerp(a, b, 0.5), [0, h, 0]); const out = [];
+  for (let i = 0; i <= n; i++) { const t = i / n; out.push(add(add(scl(a, (1-t)*(1-t)), scl(m, 2*(1-t)*t)), scl(b, t*t))); } return out; }
+const LORA = arc(ROVER_ANT, BASE_ANT, 18);
+const WIFI = arc([49, 8.6, -3.5], PHONE, 6);
+const NET = arc(PHONE, CLOUD, 10);
+const WS = arc(CLOUD, SITE, 10);
+for (const [p, t, d, c] of [[LORA, "Радиоканал LoRa 433 МГц", "Робот → база: телеметрия каждую секунду. База → робот: команды. Дальность — сотни метров, сигнал проходит сквозь стены лучше Wi-Fi.", "#ffc400"],
+                             [WIFI, "Wi-Fi: база → телефон", "База подключена к хотспоту телефона «Barlaushy».", "#5fd3ff"],
+                             [NET, "Мобильный интернет → MQTT", "Публикация в broker.emqx.io:1883 (сообщения «retained» — сайт сразу видит последнее).", "#5fd3ff"],
+                             [WS, "MQTT → сайт (WebSocket)", "Сайт подписан через wss://broker.emqx.io:8084 и обновляется в реальном времени.", "#5fd3ff"]]) {
+  part(t, d); add3(tubeGeom(p, 0.22), M4.I(), c, { a: 0.35, e: 0.6 });
+}
+label("LoRa 433 МГц", lerp(ROVER_ANT, BASE_ANT, 0.5).map((v, i) => i === 1 ? v + 15 : v), "flow");
+label("Wi-Fi", add(lerp([49, 8.6, -3.5], PHONE, 0.5), [0, 5.5, 0]), "flow");
+label("4G → MQTT", add(lerp(PHONE, CLOUD, 0.5), [0, 7, 0]), "flow");
+label("WebSocket", add(lerp(CLOUD, SITE, 0.5), [0, 7, 0]), "flow");
+
+// ================= ПАКЕТЫ =================
+const packets = [];
+function packet(path, color, period, offset = 0, size = 0.45) {
+  const o = add3(G.sph, M4.I(), color, { e: 1, id: 0 }); o.size = size;
+  packets.push({ o, path, period, offset });
+}
+const along = (path, t) => { const f = t * (path.length - 1), i = Math.min(path.length - 2, Math.floor(f)); return lerp(path[i], path[i + 1], f - i); };
+const rev = p => p.slice().reverse();
+wires.filter(w => w.color === C.an).forEach((w, i) => packet(w.path, "#7dffb0", 1.6, i * 0.25, 0.22));
+packet(wires.find(w => w.color === C.uart).path, "#e2ccff", 2.0, 0.1, 0.25);
+packet(LORA, "#ffc400", 4.0, 0.0, 0.8);
+packet(USB_PATH, "#ffffff", 4.0, 0.62, 0.35);
+packet(WIFI, "#5fd3ff", 4.0, 0.62, 0.55);
+packet(NET, "#5fd3ff", 4.0, 0.80, 0.6);
+packet(WS, "#ffc400", 4.0, 0.95, 0.6);
+packet(rev(LORA), "#2f80ed", 9.0, 0.5, 0.6);       // команда с базы
+
+// ================= КАМЕРА / ВВОД =================
+const VIEWS = { all: { t: [46, 12, -2], r: 150, th: 0.62, ph: 1.08 }, rover: { t: [0, 9, 0], r: 46, th: 0.72, ph: 0.98 }, top: { t: [0, 9, 0], r: 42, th: 0.0, ph: 0.06 } };
+const cam = { t: [...VIEWS.all.t], r: VIEWS.all.r, th: VIEWS.all.th, ph: VIEWS.all.ph };
+let goal = null, spin = false, anim = true, showLabels = true;
+function setView(k) { goal = VIEWS[k]; document.querySelectorAll("[data-view]").forEach(b => b.classList.toggle("on", b.dataset.view === k)); }
+document.querySelectorAll("[data-view]").forEach(b => b.onclick = () => setView(b.dataset.view));
+const tog = (id, f) => { const b = document.getElementById(id); b.onclick = () => { b.classList.toggle("on"); f(b.classList.contains("on")); }; };
+tog("tLabels", v => { showLabels = v; });
+tog("tAnim", v => { anim = v; });
+tog("tSpin", v => { spin = v; });
+
+let drag = null, mouse = null, pinch = null;
+canvas.addEventListener("contextmenu", e => e.preventDefault());
+canvas.addEventListener("pointerdown", e => { drag = { x: e.clientX, y: e.clientY, pan: e.button === 2 || e.shiftKey }; canvas.setPointerCapture(e.pointerId); canvas.classList.add("drag"); goal = null; });
+canvas.addEventListener("pointerup", e => { drag = null; canvas.classList.remove("drag"); });
+canvas.addEventListener("pointermove", e => {
+  mouse = { x: e.clientX, y: e.clientY };
+  if (!drag || pinch) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.x = e.clientX; drag.y = e.clientY;
+  if (drag.pan) {
+    const f = cam.r * 0.0016, right = [Math.cos(cam.th), 0, -Math.sin(cam.th)];
+    cam.t = add(cam.t, add(scl(right, -dx * f), [0, dy * f, 0]));
+  } else { cam.th -= dx * 0.006; cam.ph = Math.max(0.05, Math.min(1.5, cam.ph - dy * 0.006)); }
+});
+canvas.addEventListener("wheel", e => { e.preventDefault(); goal = null; cam.r = Math.max(12, Math.min(320, cam.r * Math.exp(e.deltaY * 0.001))); }, { passive: false });
+canvas.addEventListener("touchstart", e => { if (e.touches.length === 2) pinch = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); }, { passive: true });
+canvas.addEventListener("touchmove", e => { if (e.touches.length === 2 && pinch) { const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); cam.r = Math.max(12, Math.min(320, cam.r * pinch / d)); pinch = d; } }, { passive: true });
+canvas.addEventListener("touchend", () => { pinch = null; });
+canvas.addEventListener("pointerleave", () => { mouse = null; });
+
+// ================= ПОДПИСИ =================
+const labBox = document.getElementById("labels");
+labels.forEach(l => { l.el = document.createElement("div"); l.el.className = "lbl " + l.cls; l.el.textContent = l.text; labBox.appendChild(l.el); });
+
+// ================= PICK-БУФЕР =================
+let pickFB = null, pickW = 0, pickH = 0, hover = 0;
+function ensurePick(w, h) {
+  if (pickFB && w === pickW && h === pickH) return;
+  pickW = w; pickH = h;
+  pickFB = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, pickFB);
+  const tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+  const rb = gl.createRenderbuffer(); gl.bindRenderbuffer(gl.RENDERBUFFER, rb);
+  gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, w, h);
+  gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, rb);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+}
+
+// ================= ЦИКЛ =================
+const infoT = document.getElementById("infoT"), infoD = document.getElementById("infoD"), infoP = document.getElementById("infoP");
+let last = performance.now(), time = 0, frame = 0;
+function draw(prog, VP, eye, list, pick) {
+  gl.useProgram(prog.p); gl.uniformMatrix4fv(prog.u.uVP, false, VP);
+  if (!pick) gl.uniform3fv(prog.u.uEye, eye);
+  for (const o of list) {
+    if (o.hidden) continue;
+    gl.uniformMatrix4fv(prog.u.uM, false, o.m); gl.uniformMatrix3fv(prog.u.uN, false, o.nm);
+    if (pick) { gl.uniform3f(prog.u.uP, (o.id & 255) / 255, ((o.id >> 8) & 255) / 255, 0); }
+    else {
+      gl.uniform3fv(prog.u.uC, o.c); gl.uniform1f(prog.u.uA, o.a); gl.uniform1f(prog.u.uE, o.e);
+      gl.uniform1f(prog.u.uSh, o.sh); gl.uniform1f(prog.u.uHi, hover && o.id === hover ? 1 : 0); gl.uniform1f(prog.u.uGrid, o.grid);
+    }
+    gl.bindVertexArray(o.g.vao); gl.drawElements(gl.TRIANGLES, o.g.n, gl.UNSIGNED_INT, 0);
+  }
+}
+const opaque = () => objs.filter(o => o.a >= 1);
+const transp = () => objs.filter(o => o.a < 1);
+function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now; frame++;
+  if (anim) time += dt;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const W = Math.floor(canvas.clientWidth * dpr), H = Math.floor(canvas.clientHeight * dpr);
+  if (canvas.width !== W || canvas.height !== H) { canvas.width = W; canvas.height = H; }
+
+  if (goal) { const k = 1 - Math.pow(0.002, dt);
+    cam.t = lerp(cam.t, goal.t, k); cam.r += (goal.r - cam.r) * k;
+    let dth = goal.th - cam.th; dth = Math.atan2(Math.sin(dth), Math.cos(dth)); cam.th += dth * k; cam.ph += (goal.ph - cam.ph) * k;
+    if (Math.abs(goal.r - cam.r) < 0.05 && Math.abs(dth) < 0.001) goal = null; }
+  if (spin && !drag) cam.th += dt * 0.15;
+
+  const eye = add(cam.t, [cam.r * Math.sin(cam.ph) * Math.sin(cam.th), cam.r * Math.cos(cam.ph), cam.r * Math.sin(cam.ph) * Math.cos(cam.th)]);
+  const upv = cam.ph < 0.1 ? [-Math.sin(cam.th), 0, -Math.cos(cam.th)] : [0, 1, 0];
+  const VP = M4.mul(M4.persp(0.75, W / H, 0.5, 900), M4.look(eye, cam.t, upv));
+
+  // пакеты
+  for (const p of packets) {
+    p.o.hidden = !anim;
+    const t = ((time / p.period + p.offset) % 1 + 1) % 1;
+    const pos = along(p.path, t);
+    p.o.m = M4.mul(M4.T(...pos), M4.S(p.size, p.size, p.size)); p.o.nm = M4.nmat(p.o.m);
+  }
+
+  // выбор под мышкой (pick-проход в отдельный буфер)
+  if (mouse && !drag && frame % 2 === 0) {
+    ensurePick(W, H);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, pickFB); gl.viewport(0, 0, W, H);
+    gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.enable(gl.DEPTH_TEST); gl.disable(gl.BLEND);
+    draw(PP, VP, eye, objs.filter(o => o.id && !packets.some(p => p.o === o)), true);
+    const px = new Uint8Array(4);
+    gl.readPixels(Math.floor(mouse.x * dpr), Math.floor(H - mouse.y * dpr - 1), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    const id = px[0] + (px[1] << 8);
+    if (id !== hover) { hover = id; const it = info[id];
+      if (it) { infoT.textContent = it.t; infoD.textContent = it.d; infoP.textContent = it.p; } }
+  } else if (!mouse && hover) hover = 0;
+
+  gl.viewport(0, 0, W, H);
+  gl.clearColor(0.059, 0.059, 0.055, 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  gl.enable(gl.DEPTH_TEST); gl.disable(gl.BLEND); gl.depthMask(true);
+  draw(P, VP, eye, opaque(), false);
+  gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false);
+  draw(P, VP, eye, transp(), false);
+  gl.depthMask(true);
+
+  // подписи
+  for (const l of labels) {
+    const p = l.pos, v = [0, 1, 2, 3].map(r => VP[r] * p[0] + VP[4 + r] * p[1] + VP[8 + r] * p[2] + VP[12 + r]);
+    const vis = showLabels && v[3] > 0 && (l.cls || cam.r < 85);
+    l.el.classList.toggle("hidden", !vis);
+    if (vis) { l.el.style.left = ((v[0] / v[3]) * 0.5 + 0.5) * canvas.clientWidth + "px"; l.el.style.top = (1 - ((v[1] / v[3]) * 0.5 + 0.5)) * canvas.clientHeight + "px"; }
+  }
+  requestAnimationFrame(loop);
+}
+if (gl) requestAnimationFrame(loop);
+if (location.hash.slice(1) in VIEWS) { const v = VIEWS[location.hash.slice(1)]; Object.assign(cam, { t: [...v.t], r: v.r, th: v.th, ph: v.ph }); setView(location.hash.slice(1)); }
+</script>
+</body>
+</html>
