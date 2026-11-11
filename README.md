@@ -31,6 +31,20 @@ docs/presentation_RU.pdf, presentation_KZ.pdf     презентация на р
 docs/idea_and_pitch_KZ.pdf                        жалпы идея, питч мәтіні, қиын сұрақтарға жауаптар
 ```
 
+## Пины Arduino Mega (как собран робот)
+
+| Что | Пины Mega |
+|---|---|
+| L298N | ENA=D5, IN1=D7, IN2=D8, IN3=D9, IN4=D10, ENB=D6 |
+| MQ-4 / MQ-7 / MQ-135 / MQ-2 (AO) | A0 / A1 / A2 / A3 |
+| Серво (сигнал) | D11 |
+| HC-SR04 | TRIG=D12, ECHO=D13 |
+| Буззер | D3 |
+| LCD1602 с I2C | SDA=20, SCL=21 |
+| LilyGO | TX1 (18) → делитель 3×10 кОм → GPIO34; LilyGO GPIO13 → RX1 (19) |
+
+Питание: батарея 2S → L298N 12V → LM2596 (5,0 В на макетку: MQ, серво, HC-SR04, LCD, LilyGO) и Mega VIN. Общий GND.
+
 ## Как идут данные
 
 1. Датчики MQ-4, MQ-7, MQ-135, MQ-2 → Arduino Mega (A0–A3)

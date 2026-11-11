@@ -12,8 +12,17 @@
    4. Опасный газ -> стоп, сирена, отъезд назад, ждёт команды человека.
    5. Каждую секунду шлёт телеметрию в LilyGO (Serial1) -> LoRa -> база.
 
-   Библиотеки: Servo, LiquidCrystal (встроены в Arduino IDE).
-   Если LCD с I2C-платой: поставь LCD_I2C 1 и установи LiquidCrystal_I2C.
+   Библиотеки: Servo (встроена) + LiquidCrystal I2C (Frank de Brabander) —
+   поставить через Менеджер библиотек.
+
+   ПИНЫ (под фактическую сборку робота):
+     L298N:  ENA=D5  IN1=D7  IN2=D8  IN3=D9  IN4=D10  ENB=D6
+     MQ-4=A0  MQ-7=A1  MQ-135=A2  MQ-2=A3
+     Серво=D11   HC-SR04: TRIG=D12  ECHO=D13   Буззер=D3
+     LCD1602 I2C: SDA=20  SCL=21
+     LilyGO: TX1 (18) -> делитель -> GPIO34,  LilyGO GPIO13 -> RX1 (19)
+   Если серво воткнут в D4 — поменяй PIN_SERVO на 4.
+   Если буззер воткнут в D22 — поменяй PIN_BUZZER на 22.
 
    Отладка без LilyGO: открой Монитор порта (115200, "Новая строка")
    и вводи команды: START, STOP, RESUME, RECAL, BEEP, MAN_F, MAN_B,
@@ -27,7 +36,7 @@
 // ============================ НАСТРОЙКИ ============================
 
 // ---- LCD1602 ----
-#define LCD_I2C 0          // 1 = экран с I2C-платой (4 провода), 0 = обычный 16-пиновый
+#define LCD_I2C 1          // 1 = экран с I2C-платой (4 провода), 0 = обычный 16-пиновый
 #if LCD_I2C
   #include <Wire.h>
   #include <LiquidCrystal_I2C.h>
@@ -38,8 +47,8 @@
 #endif
 
 // ---- Моторы (L298N). Перемычки ENA/ENB СНЯТЬ, иначе скорость не регулируется ----
-const uint8_t PIN_ENA = 5,  PIN_IN1 = 22, PIN_IN2 = 23;   // левая пара моторов
-const uint8_t PIN_ENB = 6,  PIN_IN3 = 24, PIN_IN4 = 25;   // правая пара моторов
+const uint8_t PIN_ENA = 5,  PIN_IN1 = 7,  PIN_IN2 = 8;    // левая пара моторов (OUT1/OUT2)
+const uint8_t PIN_ENB = 6,  PIN_IN3 = 9,  PIN_IN4 = 10;   // правая пара моторов (OUT3/OUT4)
 const bool    INVERT_LEFT  = false;   // если левая сторона крутится назад — поставь true
 const bool    INVERT_RIGHT = false;
 
@@ -54,17 +63,17 @@ float CM_PER_SEC_SLOW   = 20.0;
 unsigned long TURN_90_MS = 550;       // сколько мс крутиться на месте для поворота ~90°
 
 // ---- Серво + ультразвук ----
-const uint8_t PIN_SERVO = 9;
+const uint8_t PIN_SERVO = 11;            // если серво в D4 — поставь 4
 const uint8_t SERVO_CENTER = 90, SERVO_LEFT = 160, SERVO_RIGHT = 20;
-const uint8_t PIN_TRIG = 30, PIN_ECHO = 31;
+const uint8_t PIN_TRIG = 12, PIN_ECHO = 13;
 const int     OBSTACLE_CM = 25;
 
 // ---- Буззер, кнопка, светодиоды ----
-const uint8_t PIN_BUZZER = 32;
+const uint8_t PIN_BUZZER = 3;            // если буззер в D22 — поставь 22
 const bool    BUZZER_ACTIVE_LOW = false;   // если пищит постоянно, а при тревоге молчит — поставь true
 const uint8_t PIN_BUTTON = 2;              // кнопка на GND (необязательно): старт/стоп
 #define USE_LEDS 0                         // 1 = есть светодиоды (через резисторы 220–330 Ом)
-const uint8_t PIN_LED_G = 33, PIN_LED_Y = 34, PIN_LED_R = 35;
+const uint8_t PIN_LED_G = 33, PIN_LED_Y = 34, PIN_LED_R = 35;   // не подключены (USE_LEDS 0)
 
 // ---- Напряжение батареи (необязательно): делитель 10k+10k с "+" батареи на A4 ----
 #define USE_BATTERY 0
