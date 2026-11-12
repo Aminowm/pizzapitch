@@ -17,6 +17,12 @@
    Если на ОБЕИХ платах "Prinyato" растёт и написано SVYAZ OK —
    LoRa работает, можно переходить к роботу.
 
+   ЕСЛИ ЭКРАН СЛОМАН — смотри на маленький СВЕТОДИОД на плате:
+     - быстро-быстро мигает всё время  -> радиомодуль НЕ найден (ошибка)
+     - не горит                        -> модуль ОК, но другую плату не слышит
+     - вспыхивает примерно раз в 2 сек -> СЛЫШИТ другую плату = СВЯЗЬ ЕСТЬ
+   Сломанный экран программе не мешает: если экрана нет, она его пропускает.
+
    Нужны библиотеки: LoRa (Sandeep Mistry), Adafruit SSD1306, Adafruit GFX.
    Плата в Arduino IDE: esp32 -> TTGO LoRa32-OLED.
   ======================================================================
@@ -52,6 +58,7 @@ Adafruit_SSD1306 oled(128, 64, &Wire, OLED_RST);
 
 String myName;                     // имя этой платы (из её заводского номера)
 bool   loraOk = false;             // нашёлся ли радиомодуль
+bool   oledOk = false;             // живой ли экранчик
 unsigned long sent = 0, got = 0;   // счётчики: отправлено / принято
 unsigned long nextSend = 0, lastGot = 0, lastScreen = 0;
 int    lastRssi = 0;
@@ -73,8 +80,10 @@ void setup() {
   // Включаем экранчик
   Wire.begin(OLED_SDA, OLED_SCL);
   if (OLED_RST >= 0) { pinMode(OLED_RST, OUTPUT); digitalWrite(OLED_RST, LOW); delay(20); digitalWrite(OLED_RST, HIGH); }
-  oled.begin(SSD1306_SWITCHCAPVCC, 0x3C);
-  oled.clearDisplay(); oled.display();
+  Wire.setTimeOut(20);
+  Wire.beginTransmission(0x3C);           // "экран, ты тут?"
+  oledOk = (Wire.endTransmission() == 0); // ответил -> экран живой
+  if (oledOk) { oled.begin(SSD1306_SWITCHCAPVCC, 0x3C); oled.clearDisplay(); oled.display(); }
 
   // Включаем радиомодуль LoRa
   SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS);
@@ -93,6 +102,7 @@ void setup() {
   Serial.println();
   Serial.println("=== ПРОВЕРКА LoRa ===");
   Serial.print("Имя этой платы: "); Serial.println(myName);
+  Serial.println(oledOk ? "Экран: найден" : "Экран: НЕ найден (не страшно, смотри на светодиод)");
   Serial.println(loraOk ? "LoRa: OK, модуль найден" : "LoRa: ОШИБКА — модуль не найден (проверь BOARD_V2 и выбор платы)");
 }
 
@@ -137,11 +147,14 @@ void loop() {
     }
   }
 
-  // 3) Светодиод горит полсекунды после каждого приёма
-  digitalWrite(LED_PIN, (lastGot > 0 && now - lastGot < 500) ? HIGH : LOW);
+  // 3) Светодиод:
+  //    ошибка LoRa -> мигает быстро всё время
+  //    иначе       -> загорается на полсекунды после каждого приёма
+  if (!loraOk) digitalWrite(LED_PIN, (now / 100) % 2);
+  else         digitalWrite(LED_PIN, (lastGot > 0 && now - lastGot < 500) ? HIGH : LOW);
 
   // 4) Обновляем экранчик (он не знает русских букв — пишем латиницей)
-  if (now - lastScreen > 300) {
+  if (oledOk && now - lastScreen > 300) {
     lastScreen = now;
     oled.clearDisplay();
     oled.setTextColor(SSD1306_WHITE);
