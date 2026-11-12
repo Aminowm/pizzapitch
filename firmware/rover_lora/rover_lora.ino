@@ -24,11 +24,11 @@
 // Старая LoRa32 V1.0 (OLED с ножкой RST=16): 0
 #define BOARD_V2 1
 #if BOARD_V2
-const int OLED_SDA = 21, OLED_SCL = 22, OLED_RST = -1, LORA_RST = 23;
+const int PIN_OLED_SDA = 21, PIN_OLED_SCL = 22, PIN_OLED_RST = -1, PIN_LORA_RST = 23;
 #else
-const int OLED_SDA = 4,  OLED_SCL = 15, OLED_RST = 16, LORA_RST = 14;
+const int PIN_OLED_SDA = 4,  PIN_OLED_SCL = 15, PIN_OLED_RST = 16, PIN_LORA_RST = 14;
 #endif
-const int LORA_SCK = 5, LORA_MISO = 19, LORA_MOSI = 27, LORA_SS = 18, LORA_DIO0 = 26;
+const int PIN_LORA_SCK = 5, PIN_LORA_MISO = 19, PIN_LORA_MOSI = 27, PIN_LORA_SS = 18, PIN_LORA_DIO0 = 26;
 
 const long LORA_FREQ = 868E6;     // модуль 868/915 МГц. В Казахстане используем 868 МГц
 const int  LORA_SF   = 8;
@@ -39,7 +39,7 @@ const int MEGA_RX = 34;           // сюда: Mega TX1 (пин 18) ЧЕРЕЗ �
 const int MEGA_TX = 13;           // отсюда: на Mega RX1 (пин 19) напрямую
 const long MEGA_BAUD = 57600;
 
-Adafruit_SSD1306 oled(128, 64, &Wire, OLED_RST);
+Adafruit_SSD1306 oled(128, 64, &Wire, PIN_OLED_RST);
 
 String megaBuf;
 String lastState = "--";
@@ -118,13 +118,13 @@ void setup() {
   Serial2.setRxBufferSize(1024);   // пока LoRa передаёт, строки от Mega копятся здесь
   Serial2.begin(MEGA_BAUD, SERIAL_8N1, MEGA_RX, MEGA_TX);
 
-  Wire.begin(OLED_SDA, OLED_SCL);
-  if (OLED_RST >= 0) { pinMode(OLED_RST, OUTPUT); digitalWrite(OLED_RST, LOW); delay(20); digitalWrite(OLED_RST, HIGH); }
+  Wire.begin(PIN_OLED_SDA, PIN_OLED_SCL);
+  if (PIN_OLED_RST >= 0) { pinMode(PIN_OLED_RST, OUTPUT); digitalWrite(PIN_OLED_RST, LOW); delay(20); digitalWrite(PIN_OLED_RST, HIGH); }
   oled.begin(SSD1306_SWITCHCAPVCC, 0x3C);
   oled.clearDisplay(); oled.display();
 
-  SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS);
-  LoRa.setPins(LORA_SS, LORA_RST, LORA_DIO0);
+  SPI.begin(PIN_LORA_SCK, PIN_LORA_MISO, PIN_LORA_MOSI, PIN_LORA_SS);
+  LoRa.setPins(PIN_LORA_SS, PIN_LORA_RST, PIN_LORA_DIO0);
   loraOk = LoRa.begin(LORA_FREQ);
   if (loraOk) {
     LoRa.setSpreadingFactor(LORA_SF);

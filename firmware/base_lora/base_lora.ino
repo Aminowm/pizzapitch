@@ -38,11 +38,11 @@ const char* TOPIC_ROOT = "barlaushy/zhz1407";          // поменяете з�
 
 #define BOARD_V2 1
 #if BOARD_V2
-const int OLED_SDA = 21, OLED_SCL = 22, OLED_RST = -1, LORA_RST = 23, LED_PIN = 25;
+const int PIN_OLED_SDA = 21, PIN_OLED_SCL = 22, PIN_OLED_RST = -1, PIN_LORA_RST = 23, PIN_LED = 25;
 #else
-const int OLED_SDA = 4,  OLED_SCL = 15, OLED_RST = 16, LORA_RST = 14, LED_PIN = 2;
+const int PIN_OLED_SDA = 4,  PIN_OLED_SCL = 15, PIN_OLED_RST = 16, PIN_LORA_RST = 14, PIN_LED = 2;
 #endif
-const int LORA_SCK = 5, LORA_MISO = 19, LORA_MOSI = 27, LORA_SS = 18, LORA_DIO0 = 26;
+const int PIN_LORA_SCK = 5, PIN_LORA_MISO = 19, PIN_LORA_MOSI = 27, PIN_LORA_SS = 18, PIN_LORA_DIO0 = 26;
 
 const long LORA_FREQ = 868E6;     // как на ровере (модуль 868/915 МГц)
 const int  LORA_SF   = 8;
@@ -54,7 +54,7 @@ const int MISSION_MAX_POINTS = 60;
 
 // ========================== КОНЕЦ НАСТРОЕК ==========================
 
-Adafruit_SSD1306 oled(128, 64, &Wire, OLED_RST);
+Adafruit_SSD1306 oled(128, 64, &Wire, PIN_OLED_RST);
 WiFiClient   net;
 PubSubClient mqtt(net);
 
@@ -232,26 +232,26 @@ void drawOled() {
   oled.print("CH4 "); oled.print(stCh4); oled.print("  CO "); oled.print(stCo);
   oled.display();
 
-  digitalWrite(LED_PIN, (stOverall == 2 && link) ? ((millis() / 200) % 2) : LOW);
+  digitalWrite(PIN_LED, (stOverall == 2 && link) ? ((millis() / 200) % 2) : LOW);
 }
 
 // ---------------------------- SETUP / LOOP ----------------------------
 
 void setup() {
   Serial.begin(115200);
-  pinMode(LED_PIN, OUTPUT);
+  pinMode(PIN_LED, OUTPUT);
 
   topicTel     = String(TOPIC_ROOT) + "/tel";
   topicMission = String(TOPIC_ROOT) + "/mission";
   topicStatus  = String(TOPIC_ROOT) + "/status";
 
-  Wire.begin(OLED_SDA, OLED_SCL);
-  if (OLED_RST >= 0) { pinMode(OLED_RST, OUTPUT); digitalWrite(OLED_RST, LOW); delay(20); digitalWrite(OLED_RST, HIGH); }
+  Wire.begin(PIN_OLED_SDA, PIN_OLED_SCL);
+  if (PIN_OLED_RST >= 0) { pinMode(PIN_OLED_RST, OUTPUT); digitalWrite(PIN_OLED_RST, LOW); delay(20); digitalWrite(PIN_OLED_RST, HIGH); }
   oled.begin(SSD1306_SWITCHCAPVCC, 0x3C);
   oled.clearDisplay(); oled.display();
 
-  SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS);
-  LoRa.setPins(LORA_SS, LORA_RST, LORA_DIO0);
+  SPI.begin(PIN_LORA_SCK, PIN_LORA_MISO, PIN_LORA_MOSI, PIN_LORA_SS);
+  LoRa.setPins(PIN_LORA_SS, PIN_LORA_RST, PIN_LORA_DIO0);
   loraOk = LoRa.begin(LORA_FREQ);
   if (loraOk) {
     LoRa.setSpreadingFactor(LORA_SF);
