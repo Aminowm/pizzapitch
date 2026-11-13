@@ -94,6 +94,9 @@ const int PIN_SERVO = 11;
 const int HEAD_CENTER = 90, HEAD_LEFT = 160, HEAD_RIGHT = 20;   // углы в градусах
 const int PIN_TRIG = 12, PIN_ECHO = 13;
 const int OBSTACLE_CM = 25;            // ближе этого — считаем, что впереди стена
+// Если дальномер глючит (на пульте "Впереди 0 см" и робот всё время объезжает) —
+// поставь false: робот будет ездить без объезда препятствий.
+const bool USE_SONAR = true;
 
 // --- Пищалка ---
 const int  PIN_BUZZER = 3;
@@ -243,12 +246,15 @@ void spinRight()   { drive(SPEED_TURN, -SPEED_TURN); }
 Servo head;
 
 int measureDistance() {
+  if (!USE_SONAR) return 400;                            // дальномер выключен в настройках
   digitalWrite(PIN_TRIG, LOW);  delayMicroseconds(2);
   digitalWrite(PIN_TRIG, HIGH); delayMicroseconds(10);   // короткий "крик"
   digitalWrite(PIN_TRIG, LOW);
   unsigned long echo = pulseIn(PIN_ECHO, HIGH, 25000UL); // ждём эхо максимум 25 мс
   if (echo == 0) return 400;                             // эхо не вернулось = впереди пусто
-  return echo / 58;
+  int cm = echo / 58;
+  if (cm < 3) return 400;   // ближе 3 см HC-SR04 мерить не умеет — это помеха, а не стена
+  return cm;
 }
 
 // ---------------------------------------------------------------------------
