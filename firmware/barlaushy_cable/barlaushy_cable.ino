@@ -282,8 +282,9 @@ char manualDir = 'S';
 void sendData(bool mapPoint);   // (описана ниже)
 
 // Сменить режим
-void setMode(Mode m) {
-  mode = m;
+// (параметр int, а не Mode — так Arduino IDE не путается при сборке)
+void setMode(int m) {
+  mode = (Mode)m;
   modeStart = millis();
   if (m != DRIVE && m != RETREAT && m != MANUAL && m != AVOID) stopMotors();
   sendData(false);                // сразу сообщаем пульту
