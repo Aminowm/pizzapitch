@@ -70,6 +70,11 @@ const bool INVERT_LEFT  = false;
 const bool INVERT_RIGHT = false;
 // Если на TEST первыми крутятся ПРАВЫЕ колёса — поставь true (поменяет стороны местами).
 const bool SWAP_SIDES   = false;
+// Если робот едет не прямо, а уводит в сторону — одна сторона сильнее.
+// Уменьши силу СИЛЬНОЙ стороны (в процентах). Уводит ВЛЕВО -> сильнее правая
+// -> RIGHT_POWER = 90 (потом 85, 80…). Уводит ВПРАВО -> уменьши LEFT_POWER.
+const int LEFT_POWER  = 100;
+const int RIGHT_POWER = 100;
 
 // Скорость: 0 = стоит, 255 = максимум. Меньше ~110 моторы могут не тронуться.
 const int SPEED_CRUISE = 170;   // обычная езда
@@ -217,6 +222,8 @@ void setSide(int pinEN, int pinA, int pinB, int speed, bool invert) {
 }
 
 void drive(int left, int right) {
+  left  = left  * LEFT_POWER  / 100;
+  right = right * RIGHT_POWER / 100;
   if (SWAP_SIDES) { int t = left; left = right; right = t; }
   setSide(PIN_ENA, PIN_IN1, PIN_IN2, left,  INVERT_LEFT);
   setSide(PIN_ENB, PIN_IN3, PIN_IN4, right, INVERT_RIGHT);
