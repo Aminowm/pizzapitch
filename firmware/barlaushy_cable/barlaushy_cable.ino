@@ -280,13 +280,17 @@ Mode modeAfterManual = READY;
 char manualDir = 'S';
 
 void sendData(bool mapPoint);   // (описана ниже)
+void lcdRestart();               // (описана ниже)
 
 // Сменить режим
 // (параметр int, а не Mode — так Arduino IDE не путается при сборке)
 void setMode(int m) {
   mode = (Mode)m;
   modeStart = millis();
-  if (m != DRIVE && m != RETREAT && m != MANUAL && m != AVOID) stopMotors();
+  if (m != DRIVE && m != RETREAT && m != MANUAL && m != AVOID) {
+    stopMotors();
+    lcdRestart();   // моторы "шумят" в проводах и сбивают экран — когда встали, перезапускаем его
+  }
   sendData(false);                // сразу сообщаем пульту
 }
 
@@ -550,6 +554,13 @@ void lcdLine(int row, const char* text) {
   snprintf(buf, sizeof(buf), "%-16s", text);   // дополняем пробелами до 16 символов
   lcd.setCursor(0, row);
   lcd.print(buf);
+}
+
+// Моторы при работе дают электрические помехи, экран от них может начать
+// показывать "кракозябры". Перезапуск экрана (0,1 с) всё исправляет.
+void lcdRestart() {
+  lcd.init();
+  lcd.backlight();
 }
 
 void updateScreen() {
