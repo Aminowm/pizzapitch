@@ -136,6 +136,7 @@
     #print .small { font-size: 9.5pt; color: #333; margin-top: 18px; }
   }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/mqtt@5/dist/mqtt.min.js"></script>
 </head>
 <body>
 
@@ -144,7 +145,7 @@
     <b>БАРЛАУШЫ</b>
     <span>робот-разведчик газа · заходит первым, чтобы человек не рисковал</span>
   </div>
-  <button id="btnConnect" class="primary">🔌 Подключить базу (USB)</button>
+  <button id="btnConnect" class="primary">🔌 Подключить (USB)</button>
   <button id="btnDemo">▶ Демо-режим</button>
   <div class="link"><span class="dot" id="linkDot"></span><span id="linkText">не подключено</span></div>
 </header>
@@ -259,6 +260,39 @@ let missionStart = null;
 let pendingCmd = null;     // {id, name}
 let port = null, writer = null, demo = null;
 
+// ------------------------------------------------------------------
+// Режим «КАБЕЛЬ»: Mega подключена к ноутбуку напрямую по USB (без LoRa).
+// Mega сама печатает строки "$T,..." — пульт превращает их в TEL,
+// а ноутбук сам отправляет данные на сайт (MQTT) вместо базы LilyGO.
+// ------------------------------------------------------------------
+let usbDirect = false, usbSeq = 0;
+const CLOUD_URL = "wss://broker.emqx.io:8084/mqtt";
+const CLOUD_ROOT = "barlaushy/zhz1407";
+let cloud = null, cloudMission = [];
+function cloudStart() {
+  if (cloud || !window.mqtt) { if (!window.mqtt) log("⚠ Нет интернета: сайт не обновляется, но пульт работает"); return; }
+  cloud = window.mqtt.connect(CLOUD_URL, {
+    clientId: "barlaushy-laptop-" + Math.random().toString(16).slice(2, 8),
+    will: { topic: CLOUD_ROOT + "/status", payload: "offline", retain: true },
+    reconnectPeriod: 4000,
+  });
+  cloud.on("connect", () => {
+    log("☁ Сайт подключён: данные идут на live-страницу");
+    cloud.publish(CLOUD_ROOT + "/status", "online", { retain: true });
+    cloudPublishMission();
+  });
+}
+function cloudPublishMission() {
+  if (cloud && cloud.connected)
+    cloud.publish(CLOUD_ROOT + "/mission", cloudMission.length ? cloudMission.join("\n") + "\n" : "EMPTY", { retain: true });
+}
+function cloudTel(line, t, prev) {
+  if (!usbDirect) return;
+  if (t.state === "SAMPLE" && t.dist === 0 && (!prev || ["READY", "DONE", "HOLD"].includes(prev.state))) { cloudMission = []; cloudPublishMission(); }
+  if (t.pt && cloudMission.length < 60) { cloudMission.push(line); cloudPublishMission(); }
+  if (cloud && cloud.connected) cloud.publish(CLOUD_ROOT + "/tel", line, { retain: true });
+}
+
 function log(msg) {
   const t = new Date().toLocaleTimeString("ru-RU");
   const el = $("log");
@@ -274,6 +308,10 @@ function log(msg) {
 function handleLine(line) {
   line = line.trim();
   if (!line) return;
+  if (line.startsWith("$T,")) {           // Mega напрямую по кабелю
+    if (!usbDirect) { usbDirect = true; log("Робот подключён напрямую кабелем (режим без LoRa)"); cloudStart(); }
+    line = `TEL,${usbSeq++},${line.slice(3)},0,0`;
+  }
   if (line.startsWith("TEL,")) {
     const f = line.split(",");
     if (f.length < 20) return;
@@ -285,7 +323,9 @@ function handleLine(line) {
       bat: +f[16] / 10, warm: +f[17], rssi: +f[f.length - 2], snr: +f[f.length - 1],
       time: new Date(),
     };
+    const prevT = last;
     onTelemetry(t);
+    cloudTel(line, t, prevT);
   } else if (line.startsWith("SENT,")) {
     const [, id, name] = line.split(",");
     pendingCmd = { id: +id, name };
@@ -384,7 +424,7 @@ function renderVerdict(t) {
 function renderStatus(t) {
   $("kState").textContent = t ? (STATE_RU[t.state] || t.state) : "—";
   $("kFront").textContent = t ? (t.front >= 400 ? "свободно" : `${t.front} см`) : "—";
-  $("kRssi").textContent = t ? `${t.rssi} dBm · SNR ${t.snr}` : "—";
+  $("kRssi").textContent = !t ? "—" : usbDirect ? "кабель USB" : `${t.rssi} dBm · SNR ${t.snr}`;
   $("kBat").textContent = t && t.bat > 0 ? `${t.bat.toFixed(1)} В` : "не измеряется";
 }
 
@@ -517,9 +557,9 @@ function renderLink() {
   const age = lastRx ? (Date.now() - lastRx) / 1000 : null;
   let color = "var(--neutral)", text = "не подключено";
   if (connected) {
-    if (!lastRx) { color = "var(--warning)"; text = demo ? "демо: запуск…" : "база подключена, ждём робота…"; }
+    if (!lastRx) { color = "var(--warning)"; text = demo ? "демо: запуск…" : "подключено, ждём данные…"; }
     else if (linkLost || age > 5) { color = "var(--critical)"; text = `⛔ нет связи ${Math.round(age)} с`; }
-    else { color = "var(--good)"; text = (demo ? "демо · " : "") + `связь есть · ${last.rssi} dBm`; }
+    else { color = "var(--good)"; text = (demo ? "демо · " : "") + (usbDirect ? "связь есть · кабель USB" : `связь есть · ${last.rssi} dBm`); }
   }
   $("linkDot").style.background = color;
   $("linkText").textContent = text;
@@ -538,7 +578,8 @@ function render() {
 async function sendCmd(name) {
   if (demo) { demo.command(name); log(`→ ${name} (демо)`); return; }
   if (!writer) return;
-  await writer.write(new TextEncoder().encode(`CMD:${name}\n`));
+  // напрямую в Mega — просто имя команды; через базу LilyGO — с приставкой CMD:
+  await writer.write(new TextEncoder().encode(usbDirect ? `${name}\n` : `CMD:${name}\n`));
   log(`→ ${name}`);
 }
 document.querySelectorAll("[data-cmd]").forEach(b => b.addEventListener("click", () => sendCmd(b.dataset.cmd)));
@@ -558,8 +599,8 @@ $("btnConnect").addEventListener("click", async () => {
     port = await navigator.serial.requestPort();
     await port.open({ baudRate: 115200 });
     writer = port.writable.getWriter();
-    log("База подключена по USB");
-    $("btnConnect").textContent = "✔ База подключена";
+    log("USB подключён. Жду данные (робот или база)…");
+    $("btnConnect").textContent = "✔ Подключено";
     renderLink();
     readLoop();
   } catch (err) { log("Ошибка подключения: " + err.message); }
@@ -580,7 +621,7 @@ async function readLoop() {
   } catch (err) {
     log("USB отключён: " + err.message);
   }
-  writer = null; $("btnConnect").textContent = "🔌 Подключить базу (USB)"; renderLink();
+  writer = null; $("btnConnect").textContent = "🔌 Подключить (USB)"; renderLink();
 }
 
 // ------------------------------------------------------------------
