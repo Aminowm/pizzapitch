@@ -649,7 +649,11 @@ void loop() {
   updateBuzzer(now);                                 // 4. пищалка
 
   static unsigned long lastScreen = 0;
-  if (now - lastScreen >= 500) { lastScreen = now; updateScreen(); }   // 5. экран 2 раза в секунду
+  // 5. пока моторы крутятся, раз в 3 с перезапускаем экран (от помех моторов)
+  static unsigned long lastLcdFix = 0;
+  bool motorsOn = (mode == DRIVE || mode == AVOID || mode == RETREAT || mode == MANUAL);
+  if (motorsOn && now - lastLcdFix >= 3000) { lastLcdFix = now; lcdRestart(); }
+  if (now - lastScreen >= 500) { lastScreen = now; updateScreen(); }   //    экран 2 раза в секунду
 
   if (now - lastSend >= 1000) sendData(false);       // 6. данные на ноутбук раз в секунду
 }
